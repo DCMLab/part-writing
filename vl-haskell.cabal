@@ -21,6 +21,7 @@ library
                      --, VoiceLeading.Automaton
                      , VoiceLeading.IO.Midi
                      , VoiceLeading.IO.LilyPond
+  other-modules:       VoiceLeading.Helpers
   build-depends:       base >= 4.7 && < 5
                      , containers
                      , machines

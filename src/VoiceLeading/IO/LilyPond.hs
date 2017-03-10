@@ -17,6 +17,7 @@ module VoiceLeading.IO.LilyPond
 
 import VoiceLeading.Base
 import VoiceLeading.IO.Midi
+import VoiceLeading.Helpers (processList)
 
 import Data.Traversable
 import Data.Functor.Identity (Identity)
@@ -51,9 +52,6 @@ pieceToLy' :: Voice v => Piece v -> L.Music
 pieceToLy' p@(Piece meta (e1:_)) = L.New "StaffGroup" Nothing $ L.Simultaneous False staves
   where vs     = reverse $ sort (voices e1)
         staves = map (L.New "Staff" Nothing . voiceToLy p) vs
-
-processList :: Foldable t => t i -> MC.ProcessT Identity i o -> [o]
-processList ins p = MC.run $ MC.source ins MC.~> p
 
 voiceToLy :: Voice v => Piece v -> v -> L.Music
 voiceToLy (Piece meta evs@(e1:_)) v = L.Sequential $ global ++ processList evs converter ++ final

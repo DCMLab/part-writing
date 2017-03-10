@@ -57,6 +57,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.List as L
 import qualified Data.Vector as V
 import qualified Debug.Trace as DT
+import VoiceLeading.Helpers (showMap)
 
 -----------
 -- Voice --
@@ -168,8 +169,7 @@ evGet e v = case evGetMaybe e v of
               Nothing  -> Rest
 
 instance Voice v => Show (Event v) where
-  show (Event m b) = "Event@" ++ show b  ++ "{" ++ (L.intercalate ", " pairs) ++ "}"
-    where pairs = map (\ (v,p) -> show v ++ ": " ++ show p) (M.toList $ m)
+  show (Event m b) = "Event@" ++ show b  ++ showMap m
 
 -- | Returns all 'Voice's in the 'Event'.
 voices :: Voice v => Event v -> [v]
