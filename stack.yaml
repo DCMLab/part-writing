@@ -38,11 +38,13 @@ resolver: lts-8.4
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - '.'
+- location: /home/chfin/dateien/src/haskell_libs/lilypond/
+  extra-dep: true
 #- location: /home/chfin/dateien/src/haskell_libs/HList/
 #  extra-dep: true
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
-extra-deps: [aeson-1.1.0.0]
+extra-deps: [aeson-1.1.0.0, music-dynamics-literal-1.9.0, music-pitch-literal-1.9.0, prettify-1.0]
 
 # Override default flag values for local packages and extra-deps
 flags: {}

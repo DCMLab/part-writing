@@ -23,17 +23,23 @@ It can be executed by running `stack exec vl-haskell-exe`.
 Another (possibly the same) example is given here:
 ```haskell
 import VoiceLeading.Base
-import VoiceLeading.Load
-import VoiceLeading.Prob
+import VoiceLeading.IO.Midi
+import VoiceLeading.IO.Lilypond
 
 main :: IO ()
 main = do
-  pieces <- Load.loadPieces "chorales.json"
-  putStrLn  (show (learnAll1 pieces :: ProductOfExperts))
+  -- load a piece from Midi
+  p <- loadMidi "01AusmeinesHerz.mid" :: IO (Piece ChoralVoice)
+  -- give it a nicer title
+  let (Piece meta events) = p
+      piece = Piece (meta { title = "Aus meines Herzens Grunde" }) events
+  -- do something
+  viewPiece piece -- shows the internal representation of a piece as notes
 ```
 It shows how
-* a list of pieces can be loaded from a JSON file (see `src/VoiceLeading/Load.hs`)
-* a Product of Experts can be learned from the pieces (see `src/VoiceLeading/Prob.hs`).
+* a piece can be loaded from a MIDI file (see `src/VoiceLeading/MIDI.hs`)
+* a the internal representation of a piece can be visualized using
+  [LilyPond](http://lilypond.org/) (see `src/VoiceLeading/LilyPond.hs`).
 
 ## Documentation
 

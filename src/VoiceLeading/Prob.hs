@@ -1,5 +1,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE IncoherentInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- |
 Module: VoiceLeading.Prob
@@ -9,6 +11,8 @@ License     : MIT
 Maintainer  : chfin@freenet.de
 Stability   : experimental
 Portability : POSIX
+
+This module is fundamentally broken and awaits a rewrite!
 
 Probabilistic voice leading rules can make judgements about a particular voice leading that are more finegrained than "allowed" and forbidden.
 In general, a rule defines a measure μ for on voice leading events (μ(e))or pairs of events (μ(e_2|e_1)), which can be interpreted as the preferability of the event as such or the event in the context of its predecessor with regard to the rule.
@@ -24,6 +28,8 @@ Since the individual rules have independent models and do not share their parame
 
 This module defines an 'Expert' typeclass as a general interface for training and applying experts.
 The 'ProductOfExperts' type implements a product of 'Expert's as an instance of the 'Expert' typeclass, so that it can be used to train all of its experts simultaneously.
+Experts (including PoEs) are not normalized by default, they are measures but not probability measures.
+in order to get normalized results use 'judgeNorm' and 'judgeGivenNorm'.
 -}
 module VoiceLeading.Prob
   ( Expert(..)
@@ -34,10 +40,10 @@ module VoiceLeading.Prob
 
 import VoiceLeading.Base
 import VoiceLeading.Load
-import qualified Data.Vector as VB
 import qualified Data.Vector.Unboxed as VU
-import qualified Data.Vector.Generic as VG
-import Data.Dynamic
+import qualified Data.Sequence as S
+-- import Data.Dynamic
+import qualified Data.Bits as Bits
 
 import qualified Debug.Trace as DT
 
@@ -47,35 +53,35 @@ import qualified Debug.Trace as DT
 
 class Expert e where
   neutral    :: e
-  judge      :: e -> EEvent -> Float
-  judgeGiven :: e -> EEvent -> EEvent -> Float
-  learnNew1  :: e -> EEvent -> e
-  learnNew   :: e -> (EEvent, EEvent) -> e
+  judge      :: Voice v => e -> EEvent v -> Float
+  judgeGiven :: Voice v => e -> EEvent v -> EEvent v -> Float
+  learnNew1  :: Voice v => e -> EEvent v -> e
+  learnNew   :: Voice v => e -> (EEvent v, EEvent v) -> e
 
   judge      _ _        = 1.0
   judgeGiven exp e2 _   = judge exp e2
   learnNew1  exp _      = exp
   learnNew   exp (_,e2) = learnNew1 exp e2
 
-learn :: (Expert e) => e -> EPiece -> e
-learn expert piece = VG.foldl learnNew expert (VG.zip (VG.init piece) (VG.tail piece))
+learn :: (Expert e, Voice v) => e -> EPiece v -> e
+learn expert piece = foldl learnNew expert (zip (init piece) (tail piece))
 
-learn1 :: (Expert e) => EPiece -> e
+learn1 :: (Expert e, Voice v) => EPiece v -> e
 learn1 = learn neutral
 
-learnAll :: (Expert e) => e -> Pieces -> e
-learnAll expert pieces = VG.foldl learn expert (VG.map toEPiece pieces)
+learnAll :: (Expert e, Voice v) => e -> Pieces v -> e
+learnAll expert pieces = foldl learn expert (map toEPiece pieces)
 
-learnAll1 :: (Expert e) => Pieces -> e
+learnAll1 :: (Expert e, Voice v) => Pieces v -> e
 learnAll1 = learnAll neutral
 
-judgeNorm :: (Expert e) => e -> EEvent -> Float
-judgeNorm expert event = (judge expert event) / z
-  where z = VG.sum $ VG.map (judge expert) eEventList
+-- judgeNorm :: (Expert e, Voice v) => e -> EEvent v -> Float
+-- judgeNorm expert event = (judge expert event) / z
+--   where z = sum $ map (judge expert) eEventList
 
-judgeGivenNorm :: (Expert e) => e -> EEvent -> EEvent -> Float
+judgeGivenNorm :: (Expert e, Voice v) => e -> EEvent v -> EEvent v -> Float
 judgeGivenNorm expert e2 e1 = (judgeGiven expert e2 e1) / z
-  where z = VG.sum $ VG.map (\e -> judgeGiven expert e e1) eEventList
+  where z = sum $ map (\e -> judgeGiven expert e e1) eEventList
 
 -- null expert type
 -------------------
@@ -89,60 +95,136 @@ instance Expert NullExpert where
 -- type for all experts
 -----------------------
 
-data ExpertType = forall a . (Expert a, Show a) => ExpertType a
+data ExpertType v = forall a . (Expert a, Show a) => ExpertType a v
 
-instance Show ExpertType where
-  show (ExpertType e) = show e
+instance Show (ExpertType v) where
+  show (ExpertType e _) = show e
 
-instance Expert ExpertType where
-  neutral                   = ExpertType NullExpert
-  judge      (ExpertType e) = judge e
-  judgeGiven (ExpertType e) = judgeGiven e
-  learnNew1  (ExpertType e) = ExpertType . learnNew1 e
-  learnNew   (ExpertType e) = ExpertType . learnNew e
+instance Voice v => Expert (ExpertType v) where
+  neutral                        = ExpertType NullExpert (head voiceList)
+  judge      (ExpertType e _)    = judge e
+  judgeGiven (ExpertType e _)    = judgeGiven e
+  learnNew1  (ExpertType e v) ev = ExpertType (learnNew1 e ev) v
+  learnNew   (ExpertType e v) ev = ExpertType (learnNew e ev) v
 
-expertList :: [ExpertType]
-expertList = [ ExpertType (neutral :: TexturalDensity)
-             ] -- should contain neutral of every expert type
+expertList :: forall v . (Voice v) => [ExpertType v]
+expertList = [ ExpertType (neutral :: WrappedBinExpertUnary (TexturalDensity v)) v
+             ]
+  where v = head voiceList
 
 -- product of experts
 ---------------------
 
-data ProductOfExperts = PoE [ExpertType]
+data ProductOfExperts v = PoE [ExpertType v]
   deriving (Show)
 
-instance Expert ProductOfExperts where
+instance Voice v => Expert (ProductOfExperts v) where
   neutral                  = PoE expertList
   judge      (PoE l) ev    =  product $ map (flip judge ev) l
   judgeGiven (PoE l) e2 e1 =  product $ map (\exp -> judgeGiven exp e2 e1) l
   learnNew1  (PoE l) ev    = PoE (map (flip learnNew1 ev) l)
   learnNew   (PoE l) ep    = PoE (map (flip learnNew ep) l)
 
+-- bin experts
+--------------
+
+class BinExpertBase b where
+  binNeutral :: b
+  binFreq    :: b -> Int -> Float
+  binInc     :: b -> Int -> b
+
+class (BinExpertBase b) => BinExpertUnary b where
+  binIndex1  :: Voice v => b -> EEvent v -> Int
+  binSize1   :: Voice v => EPiece v -> b -> Int -> Int
+
+  binSize1 eEvList exp = (map countSize [0..] !!)
+    where indices     = map (binIndex1 exp) eEvList
+          countSize i = length $ filter (==i) indices
+
+newtype WrappedBinExpertUnary e = WrapBE1 e
+  deriving (Show)
+
+instance (BinExpertUnary b) => Expert (WrappedBinExpertUnary b) where
+  neutral = WrapBE1 binNeutral
+  judge (WrapBE1 b) ev = (binFreq b i) / (fromIntegral (binSize1 el b i))
+    where i  = binIndex1 b ev
+          el = tail $ ev : eEventList
+  learnNew1 (WrapBE1 b) ev = WrapBE1 $ binInc b (binIndex1 b ev)
+
+class (BinExpertBase b) => BinExpertBinary b where
+  binIndex2  :: Voice v => b -> EEvent v -> EEvent v -> Int
+  binSize2   :: Voice v => EPiece v -> b -> Int -> Int
+
+  binSize2 eEvList exp = (map countSize [0..] !!)
+    where indices     = concatMap (\e -> map (binIndex2 exp e) eEvList) eEvList
+          countSize i = length $ filter (==i) indices
+
+newtype WrappedBinExpertBinary e = WrapBE2 e
+  deriving (Show)
+
+instance (BinExpertBinary b) => Expert (WrappedBinExpertBinary b) where
+  neutral = WrapBE2 binNeutral
+  judgeGiven (WrapBE2 b) e2 e1 = (binFreq b i) / (fromIntegral (binSize2 el b i))
+    where i  = binIndex2 b e1 e2
+          el = tail $ e1 : eEventList
+  learnNew (WrapBE2 b) (e1, e2) = WrapBE2 $ binInc b (binIndex2 b e1 e2)
+
 -- textural density rule
 ------------------------
 
-data TexturalDensity = TexturalDensity (VU.Vector Float)
+-- data TexturalDensity' = TexturalDensity' (VU.Vector Float)
+--   deriving (Show)
+
+-- restIndex :: Event -> Int
+-- restIndex e =
+--   foldl (\ acc bit -> 2 * acc + bit) 0 (map (\v -> restBit e v) voiceList)
+
+-- instance Expert TexturalDensity' where
+--   neutral = TexturalDensity' (VU.replicate (2 ^ length voiceList) 0)
+  
+--   judge (TexturalDensity' params) (EEvent event) = params VU.! restIndex event
+--   judge _ _ = 1.0 -- EStart and EEnd
+  
+--   learnNew1 (TexturalDensity' old) (EEvent event) =
+--     TexturalDensity' (old VG.// [(i, (old VG.! i) + 1)])
+--     where i = restIndex event
+--   learnNew1 old _ = old
+
+-- textural density rule (bin implementation
+--------------------------------------------
+
+data TexturalDensity v = TexturalDensity v (S.Seq Float)
   deriving (Show)
 
-restBit :: Event -> Voice -> Int
+restBit :: Voice v => Event v -> v -> Int
 restBit e v = if isRest $ getEv e v then 1 else 0
 
-restIndex :: Event -> Int
-restIndex e =
-  foldl (\ acc bit -> 2 * acc + bit) 0 (map (\v -> restBit e v) voiceList)
+tdSizes :: Int -> [Int]
+tdSizes vs = (head sizes + 2) : (tail sizes)
+  where sizes = map (\i -> 39 ^ (vs - (Bits.popCount i))) ([0..2^vs] :: [Int])
 
-instance Expert TexturalDensity where
-  neutral = TexturalDensity (VU.replicate (2 ^ length voiceList) 0)
-  
-  judge (TexturalDensity params) (EEvent event) = params VU.! restIndex event
-  judge _ _ = 1.0 -- EStart and EEnd
-  
-  learnNew1 (TexturalDensity old) (EEvent event) =
-    TexturalDensity (old VG.// [(i, (old VG.! i) + 1)])
-    where i = restIndex event
-  -- learnNew1 t e@(EEvent _) = learnNew1 t e
-  learnNew1 old _ = old
-  
+-- lookupBin :: S.Seq Float -> Int -> Float
+-- lookupBin s i = case s S.!? i of
+--                   (Just f) -> f
+--                   Nothing  -> 0
+
+instance Voice v => BinExpertBase (TexturalDensity v) where
+  binNeutral = TexturalDensity (head vs) (S.replicate (2 ^ length vs) 0)
+    where vs = voiceList
+  binFreq (TexturalDensity _ freqs) i = S.index freqs i
+  binInc  (TexturalDensity x old) i =
+    TexturalDensity x $ S.adjust (+1) i old
+
+instance Voice v => BinExpertUnary (TexturalDensity v) where
+  binIndex1 _ (EEvent e) =
+      foldl (\ acc bit -> 2 * acc + bit) 0 (map (\v -> restBit e v) voiceList)
+  binIndex1 _ _ = 0 -- EStart and EEnd are considered default i.e. no rests
+
+  binSize1 el _ = (tdSizes vl !!) -- precompute sizes
+    where (EEvent e) = (head el)
+          v = head (voices e)
+          vl = length (v:voiceList) - 1
+
 -- TODO:
 -- - fix TexturalDensity factors
 -- - remaining rule experts
