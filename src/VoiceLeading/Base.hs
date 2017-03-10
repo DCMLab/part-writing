@@ -11,35 +11,46 @@ Portability : POSIX
 Voice leading rules describe restrictions and preferences regarding the simultaneous movement of two or more voices.
 Most rules mention either configurations of voices at a single point in time (unary) or the movement of voices from one configuration to its successor (binary).
 
+__Note: The following is not entirely up to date, refer to the individual documentation.__
+
 This module provides basic types and functions for describing voice leading rules.
 A piece of music is represented as a sequence of voice configurations called events.
 An event is a mapping from voices to pitches and describes the pitch sounding in each voice at a given point in the piece.
 As a special case, since a voice can have no pitch at all at some point, an event might also map a voice to a rest.
 The 'Voice', 'Pitch', and, 'Event' types are used to represent voices, pitches, and events, respectively.
 
-A piece is represented as a list of voice leading events, so the type synonyms 'Piece' and 'Pieces' for 'Data.Vector.Vector's of 'Event's or 'Piece's, respectively, can be used for that.
+A piece is represented as a list of voice leading events, so the type synonyms 'Piece' and 'Pieces' for 'Lists's of 'Event's or 'Piece's, respectively, can be used for that.
 Additionally, a type for extended events (which includes a "start" event and an "end" event) is provided by 'EEvent' and complemented by the corresponding 'EPiece' and 'EPieces' types.
 These representations should be used in formal language or markov model contexts where the boundaries of an event sequence can be marked by "start" and "end" events.
 -}
-module VoiceLeading.Base
-  ( Voice(..)
+module VoiceLeading.Base (
+    -- * Voices
+    Voice(..)
   , ChoralVoice(..)
   , CounterpointVoice(..)
+    -- * Pitches
   , Pitch(..)
-  , Beat
-  , Event(..)
-  , PieceMeta(..), nullPieceMeta
-  , KeySig(..), mkKeySig, modal
-  , Piece(..), Pieces
   , EEvent(..), EPiece, EPieces
   , pitchList
+    -- ** Pitch Functions
   , isRest, isPitch, pitchHolds, pitchMidi, holdPitch
+    -- * Events
+  , Event(..)
+  , Beat
+  , allEvents, eventList
+    -- ** Event Functions
   , emptyEvent, isEmptyEvent, toEv
   , evGet, evGetMaybe, voices, pitches
   , removeRests, addRests, rests
-  , allEvents, eventList
   , toEPiece, toEPieces
   , eEventList
+    -- * Pieces
+  , Piece(..), Pieces
+    -- ** Piece Metadata
+  , PieceMeta(..), nullPieceMeta
+    -- *** Key signatures
+  , KeySig(..), mkKeySig, modal
+    -- * Extended Events and Pieces
   ) where
 
 import qualified Data.Map.Strict as M
@@ -184,6 +195,22 @@ addRests (Event m b) = toEv (foldl addRest m voiceList) b
 rests :: Voice v => Event v -> Int
 rests e = M.size (evMap e) - M.size (evMap (removeRests e))
 
+-- | A 'Data.Vector.Vector' of all possible 'Event's
+--   for given lists of 'Voice's and 'Pitch'es.
+allEvents :: Voice v => [v] -> [Pitch] -> [Event v]
+allEvents voices pitches = map makeEvent pitchProd
+  where pitchProd = sequence $ replicate (length voices) pitches
+        makeEvent = (flip toEv) 0 . M.fromList . zip voices
+
+-- | A 'Data.Vector.Vector' of all possible 'Event's
+--   derived from 'voiceList' and 'pitchList'.
+eventList :: Voice v => [Event v]
+eventList = allEvents voiceList pitchList
+
+-----------
+-- Piece --
+-----------
+
 -- | The type 'Piece' wraps '[Event]' and some metadata.
 data Piece v = Piece PieceMeta [Event v]
   deriving (Show)
@@ -220,17 +247,6 @@ nullPieceMeta = PieceMeta "untitled" (4,4) (KeySig 0 0)
 -- | The type 'Pieces' is a shortcut for '[Piece]'.
 type Pieces v = [Piece v]
 
--- | A 'Data.Vector.Vector' of all possible 'Event's
---   for given lists of 'Voice's and 'Pitch'es.
-allEvents :: Voice v => [v] -> [Pitch] -> [Event v]
-allEvents voices pitches = map makeEvent pitchProd
-  where pitchProd = sequence $ replicate (length voices) pitches
-        makeEvent = (flip toEv) 0 . M.fromList . zip voices
-
--- | A 'Data.Vector.Vector' of all possible 'Event's
---   derived from 'voiceList' and 'pitchList'.
-eventList :: Voice v => [Event v]
-eventList = allEvents voiceList pitchList
 
 ---------------------
 -- Extended Events --
