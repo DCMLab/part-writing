@@ -41,8 +41,6 @@ module VoiceLeading.Base (
   , emptyEvent, isEmptyEvent, toEv
   , evGet, evGetMaybe, voices, pitches
   , removeRests, addRests, rests
-  , toEPiece, toEPieces
-  , eEventList
     -- * Pieces
   , Piece(..), Pieces
   , normalizeTies, normalizeTiesScanner
@@ -51,6 +49,9 @@ module VoiceLeading.Base (
     -- *** Key signatures
   , KeySig(..), mkKeySig, modal
     -- * Extended Events and Pieces
+  -- , EEvent(..), EPiece, EPieces
+  -- , toEPiece, toEPieces
+  -- , eEventList
   ) where
 
 import qualified Data.Map.Strict as M
@@ -270,29 +271,29 @@ normalizeTiesScanner keep e1 (Event m b) = toEv (M.mapWithKey norm m) b
 -- Extended Events --
 ---------------------
 
--- | The type 'EEvent' extends 'Event' by a "start" (⋊) and an "end" (⋉) value.
---   This can be useful in situations where the beginning and the end of an
---   event sequence need to be taken into account.
-data EEvent v = EStart | EEvent (Event v) | EEnd
-  deriving (Show)
+-- -- | The type 'EEvent' extends 'Event' by a "start" (⋊) and an "end" (⋉) value.
+-- --   This can be useful in situations where the beginning and the end of an
+-- --   event sequence need to be taken into account.
+-- data EEvent v = EStart | EEvent (Event v) | EEnd
+--   deriving (Show)
 
-deriving instance Eq v => Eq (EEvent v) 
+-- deriving instance Eq v => Eq (EEvent v) 
 
--- | The type 'EPiece' is a list of 'EEvent's (like 'Piece' for 'Event')
-type EPiece v = [EEvent v]
+-- -- | The type 'EPiece' is a list of 'EEvent's (like 'Piece' for 'Event')
+-- type EPiece v = [EEvent v]
 
--- | Converts a sequence of 'Event's to a sequence of 'EEvent's,
---   enclosing it with 'EStart' and 'EEnd'.
-toEPiece :: Voice v => Piece v -> EPiece v
-toEPiece (Piece _ piece) = EStart : (map EEvent piece) ++ [EEnd]
+-- -- | Converts a sequence of 'Event's to a sequence of 'EEvent's,
+-- --   enclosing it with 'EStart' and 'EEnd'.
+-- toEPiece :: Voice v => Piece v -> EPiece v
+-- toEPiece (Piece _ piece) = EStart : (map EEvent piece) ++ [EEnd]
 
--- | An 'EEvent' version of 'eventList' including 'EStart' and 'EEnd'.
-eEventList :: Voice v => EPiece v
-eEventList = toEPiece (Piece nullPieceMeta eventList)
+-- -- | An 'EEvent' version of 'eventList' including 'EStart' and 'EEnd'.
+-- eEventList :: Voice v => EPiece v
+-- eEventList = toEPiece (Piece nullPieceMeta eventList)
 
--- | The type 'EPieces' is a sequence of 'EPiece's (like 'Pieces' for 'Piece')
-type EPieces v = [EPiece v]
+-- -- | The type 'EPieces' is a sequence of 'EPiece's (like 'Pieces' for 'Piece')
+-- type EPieces v = [EPiece v]
 
--- | Converts 'Pieces' to 'EPieces', adding 'EStarts' and 'EEnds'.
-toEPieces :: Voice v => Pieces v -> EPieces v
-toEPieces = map toEPiece
+-- -- | Converts 'Pieces' to 'EPieces', adding 'EStarts' and 'EEnds'.
+-- toEPieces :: Voice v => Pieces v -> EPieces v
+-- toEPieces = map toEPiece

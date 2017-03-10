@@ -18,7 +18,7 @@ library
   exposed-modules:     VoiceLeading.Base
                      , VoiceLeading.Load
                      --, VoiceLeading.Prob
-                     --, VoiceLeading.Automaton
+                     , VoiceLeading.Automaton
                      , VoiceLeading.IO.Midi
                      , VoiceLeading.IO.LilyPond
   other-modules:       VoiceLeading.Helpers
