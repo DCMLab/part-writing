@@ -30,7 +30,6 @@ module VoiceLeading.Base (
   , CounterpointVoice(..)
     -- * Pitches
   , Pitch(..)
-  , EEvent(..), EPiece, EPieces
   , pitchList
     -- ** Pitch Functions
   , isRest, isPitch, pitchHolds, pitchMidi, holdPitch
@@ -46,6 +45,7 @@ module VoiceLeading.Base (
   , eEventList
     -- * Pieces
   , Piece(..), Pieces
+  , normalizeTies, normalizeTiesScanner
     -- ** Piece Metadata
   , PieceMeta(..), nullPieceMeta
     -- *** Key signatures
@@ -247,6 +247,24 @@ nullPieceMeta = PieceMeta "untitled" (4,4) (KeySig 0 0)
 -- | The type 'Pieces' is a shortcut for '[Piece]'.
 type Pieces v = [Piece v]
 
+-- | Since each 'Pitch' carries both a pitch value and tie flag,
+-- a pitch in one event might be held from the previous event
+-- but have a different pitch value.
+-- @normalizeTies piece keepTies@ fixes this.
+-- If @keepTies@ is 'True', then all held pitches are adapted from left to right.
+-- If @keepTies@ is 'False', then all ties between different pitch values are removed.
+normalizeTies :: Voice v => Piece v -> Bool -> Piece v
+normalizeTies (Piece meta evs) keep = Piece meta (scanl1 (normalizeTiesScanner keep) evs)
+
+-- | Scanner ('scanl1') function for normalizing ties (cf. 'normalizeTies')
+normalizeTiesScanner :: Voice v => Bool -> Event v -> Event v -> Event v
+normalizeTiesScanner keep e1 (Event m b) = toEv (M.mapWithKey norm m) b
+  where norm v p = norm1 (evGet e1 v) p
+        norm1 (Pitch p1 _) (Pitch p2 True)
+          | p1 /= p2 = if keep
+                       then (Pitch p1 True)
+                       else (Pitch p2 False)
+        norm1 _ p = p
 
 ---------------------
 -- Extended Events --
