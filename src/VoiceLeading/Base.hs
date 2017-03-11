@@ -67,6 +67,8 @@ import VoiceLeading.Helpers (showMap)
 class (Eq a, Ord a, Show a, Read a, Enum a, Bounded a) => Voice a where
   -- | A list of all 'Voice's.
   voiceList :: [a]
+  defaultRange :: a -> (Int, Int)
+  defaultRange v = (38,81) -- some kind of vocal range default values
 
 -- | 'ChoralVoice' is an instance of 'Voice'.
 data ChoralVoice = Bass | Tenor | Alto | Soprano
@@ -74,6 +76,10 @@ data ChoralVoice = Bass | Tenor | Alto | Soprano
 
 instance Voice ChoralVoice where
   voiceList = [Bass, Tenor, Alto, Soprano]
+  defaultRange Bass    = (38,62)
+  defaultRange Tenor   = (48,69)
+  defaultRange Alto    = (55,74)
+  defaultRange Soprano = (59,81)
 
 data CounterpointVoice = LowCP | CF | HighCP
   deriving (Eq, Ord, Enum, Bounded, Show, Read)
