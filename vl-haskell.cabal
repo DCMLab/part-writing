@@ -30,7 +30,6 @@ library
                      , process
                      , aeson
                      , bytestring
-                     , vector
                      , HCodecs
                      , lilypond
                      , prettify

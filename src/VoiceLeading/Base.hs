@@ -56,7 +56,6 @@ module VoiceLeading.Base (
 
 import qualified Data.Map.Strict as M
 import qualified Data.List as L
-import qualified Data.Vector as V
 import qualified Debug.Trace as DT
 import VoiceLeading.Helpers (showMap)
 
