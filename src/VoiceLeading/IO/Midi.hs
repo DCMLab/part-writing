@@ -11,6 +11,7 @@ Load and (in the future) save Midi files to / from the VL representation.
 -}
 module VoiceLeading.IO.Midi
   ( loadMidi
+  , testPiece
   ) where
 
 import VoiceLeading.Base
@@ -92,3 +93,6 @@ msgToEvent ttb (Event pm pb) msgs = toEv (foldl applyMsg holdAll msgs) beat
         beat = ttb (fst (head msgs))
         applyMsg m (_,NoteOff c _ _) = M.insert (channelToVoice c) Rest m
         applyMsg m (_,NoteOn c p _)  = M.insert (channelToVoice c) (Pitch p False) m
+
+testPiece :: IO (Piece ChoralVoice)
+testPiece = loadMidi "01AusmeinesHerz.mid"
