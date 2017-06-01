@@ -97,7 +97,7 @@ data Pitch = Rest | Pitch Int Bool
   deriving (Eq, Ord)
 
 pitchNames = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"]
-showPitch i = (pitchNames !! mod i 12) ++ show (div i 12)
+showPitch i = (pitchNames !! mod i 12) ++ show (div i 12 - 1)
 
 instance Show Pitch where
   show Rest            = "R"
@@ -106,7 +106,7 @@ instance Show Pitch where
 
 -- | A list of all 'Pitch'es.
 pitchList :: [Pitch]
-pitchList = Rest : map (\p -> Pitch p False) [29..67]
+pitchList = Rest : map (\p -> Pitch p False) [41..79]
 
 -- | Return 'True' if the given 'Pitch' is 'Rest'
 isRest :: Pitch -> Bool
@@ -201,14 +201,14 @@ addRests (Event m b) = toEv (foldl addRest m voiceList) b
 rests :: Voice v => Event v -> Int
 rests e = M.size (evMap e) - M.size (evMap (removeRests e))
 
--- | A 'Data.Vector.Vector' of all possible 'Event's
+-- | A list of all possible 'Event's
 --   for given lists of 'Voice's and 'Pitch'es.
 allEvents :: Voice v => [v] -> [Pitch] -> [Event v]
 allEvents voices pitches = map makeEvent pitchProd
   where pitchProd = sequence $ replicate (length voices) pitches
         makeEvent = (flip toEv) 0 . M.fromList . zip voices
 
--- | A 'Data.Vector.Vector' of all possible 'Event's
+-- | A list of all possible 'Event's
 --   derived from 'voiceList' and 'pitchList'.
 eventList :: Voice v => [Event v]
 eventList = allEvents voiceList pitchList
