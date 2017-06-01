@@ -22,9 +22,9 @@ import VoiceLeading.Helpers (processList)
 import Data.Traversable
 import Data.Functor.Identity (Identity)
 import GHC.Base ((<|>))
-import GHC.Real ((%))
+import Data.Ratio
 import Data.Fixed (mod')
-import Data.List (sort,genericLength)
+import Data.List (sort, genericLength, find)
 import Data.Maybe (mapMaybe)
 
 import System.IO.Temp (withSystemTempDirectory)
@@ -69,10 +69,10 @@ voiceMachine :: Voice v => KeySig -> Beat -> Beat -> Beat -> v
              -> MC.ProcessT Identity (Event v) L.Music
 voiceMachine key barLen beatLen upBeat v = MC.unfoldPlan (0,Nothing) go
   where go (lastBeat,lastNote) = do
-          ev <- MC.await <|> completeLast lastNote (mkDur upBeat lastBeat) False *> MC.stop
+          ev <- MC.await <|> completeLast lastNote (calcDur upBeat lastBeat) False *> MC.stop
           let note = evGet ev v
               beat = evBeat ev
-              dur = mkDur beat lastBeat
+              dur = calcDur beat lastBeat
           completeLast lastNote dur (pitchHolds note)
           case note of
             Rest      -> go (beat, Just $ L.Rest Nothing [])
@@ -80,15 +80,28 @@ voiceMachine key barLen beatLen upBeat v = MC.unfoldPlan (0,Nothing) go
         completeLast last dur hold =
           let post = (if hold then [L.Tie] else []) in
           case last of
-            Just (L.Rest _ _)   -> MC.yield $ L.Rest dur post
-            Just (L.Note p _ _) -> MC.yield $ L.Note p dur post
-            _                   -> MC.yield $ L.Rest dur [] -- pure ()
+            Just (L.Rest _ _)   -> yieldNote L.Rest dur post
+            Just (L.Note p _ _) -> yieldNote (L.Note p) dur post
+            _                   -> if wholeBar dur then  pure () else yieldNote L.Rest dur []
               -- usually yield nothing, but now rest instead of \partial
-        mkDur beat lastBeat = Just $ L.Duration (mod' (beat - lastBeat) barLen * beatLen)
+        calcDur beat lastBeat = (mod' (beat - lastBeat) barLen * beatLen)
+        mkDur dur = Just $ L.Duration (if dur == 0 then barLen * beatLen else dur)
+        wholeBar dur = dur == (barLen * beatLen)
+        po2 n      = elem n $ map (2^) [0..n]
+        po2' n     = elem n $ map (\i -> (2^i)-1) [0..n]
+        fracPart f = maybe 1 id $ find (\i -> 1 % (2^i) < f) [0..]
+        yieldNote note dur post
+          | po2' (numerator dur) = MC.yield $ note (mkDur dur) post
+          | otherwise = do case (note Nothing []) of
+                             (L.Rest _ _) -> MC.yield $ note (mkDur first) []
+                             (L.Note _ _ _) -> MC.yield $ note (mkDur first) [L.Tie]
+                           yieldNote note (dur - first) post
+                             where first = 1 % 2 ^ fracPart dur
+          
 
 guessClef :: (Voice v) => v -> [Event v] -> L.Clef
 guessClef v evs = if mean < 60 then L.Bass else L.Treble 
-  where mean = (sum $ mapMaybe (pitchMidi . (flip evGet) v) evs) % length evs
+  where mean = (sum $ map (maybe 60 id . pitchMidi . (flip evGet) v) evs) % length evs
 
 guessKey :: KeySig -> (L.Pitch, L.Mode)
 guessKey k@(KeySig r 5) = (midiToPitch k r, L.Minor)
