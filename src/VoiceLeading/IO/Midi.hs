@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {-|
 Module      : VoiceLeading.IO.Midi
 Description : Basic definitions for voice leading analysis
@@ -28,6 +30,9 @@ choraleFP chorale = "/home/chfin/Uni/master/data/JSB Chorales/" ++ chorale ++ ".
 
 chorale = "/home/chfin/Uni/master/data/bach_chorales_bachcentral/01AusmeinesHerz.mid"
 
+vomHimmel = "/home/chfin/Uni/master/code/vl-haskell/data/jsbchorales/uncorrected/024823b2.mid"
+lobeDenHerren = "/home/chfin/Uni/master/code/vl-haskell/data/jsbchorales/uncorrected/013705ch.mid"
+
 isTimeSig :: Message -> Bool
 isTimeSig (TimeSignature _ _ _ _) = True
 isTimeSig _ = False
@@ -55,19 +60,20 @@ loadMidi fp = do
     Left _  -> return $ Piece nullPieceMeta []
     Right m -> return $ convertMidi fp m
       
-convertMidi :: Voice v => FilePath -> Midi -> (Piece v)
+convertMidi :: forall v . Voice v => FilePath -> Midi -> (Piece v)
 convertMidi fp midi =
-  let s      = (midiToStream midi)
+  let s      = midiToStream midi (length (voiceList :: [v]))
       notes  = filter (liftA2 (||) isNoteOn isNoteOff . snd) s
       groups = groupBy ((==) `on` fst) notes
       TimeSignature bpbar denom _ _ =
         maybe (TimeSignature 4 2 24 8) snd (find (isTimeSig . snd) s)
       qpbar  = 4 * (bpbar % 2^denom)
-      bardur = round $ fromIntegral (ppq (timeDiv midi)) * qpbar
-      ttb    = tickToBeat bardur (ppq (timeDiv midi))
+      bardur = round $ fromIntegral (ppq (timeDiv midi)) * qpbar -- bar duration in ticks
+      bdur   = round $ bardur % bpbar -- beat duration in ticks
+      t2b    = tickToBeat bardur bdur -- converts abs ticks to rel beats
       KeySignature accs key =
         maybe (KeySignature 0 0) snd (find (isKeySig . snd) s)
-      events = scanl (msgToEvent ttb) emptyEvent groups
+      events = scanl (msgToEvent t2b) emptyEvent groups
       evdrop = dropWhileEnd isEmptyEvent (dropWhile isEmptyEvent events)
       meta   = PieceMeta
         { title = takeBaseName fp
@@ -76,23 +82,25 @@ convertMidi fp midi =
         -- modus = 0*5 = 0 (major) or 1*5 = 5 (minor)
         , keySignature = mkKeySig (mod (7*accs) 12) (key * 5)
         , timeSignature = (toInteger bpbar, 2^denom) }
-  in
-    Piece meta evdrop
+  in Piece meta evdrop
 
-midiToStream :: Midi -> Track Ticks
-midiToStream m = toAbsTime $ foldl1 merge (tracks m)
+midiToStream :: Midi -> Int -> Track Ticks
+midiToStream m n = toAbsTime $ foldl1 merge (take (n+1) (tracks m))
 
 channelToVoice :: Voice v => Int -> v
 channelToVoice c = let vl = voiceList
-                       l = length vl in
-                     vl !! (l - c - 1)
+                       i = length vl - c - 1 
+                   in if i < 0
+                      then error "Not enough Voices for channels."
+                      else vl !! i
 
-msgToEvent :: Voice v => (Ticks -> Beat) -> Event v -> [(Ticks,Message)] -> Event v
+msgToEvent :: forall v . Voice v => (Ticks -> Beat) -> Event v -> [(Ticks,Message)] -> Event v
 msgToEvent ttb (Event pm pb) msgs = toEv (foldl applyMsg holdAll msgs) beat
   where holdAll = M.map holdPitch pm
         beat = ttb (fst (head msgs))
-        applyMsg m (_,NoteOff c _ _) = M.insert (channelToVoice c) Rest m
-        applyMsg m (_,NoteOn c p _)  = M.insert (channelToVoice c) (Pitch p False) m
+        nv = length (voiceList :: [v])
+        applyMsg m (_,NoteOff c _ _) = if c >= nv then m else M.insert (channelToVoice c) Rest m
+        applyMsg m (_,NoteOn c p _)  = if c >= nv then m else M.insert (channelToVoice c) (Pitch p False) m
 
 testPiece :: IO (Piece ChoralVoice)
 testPiece = do
