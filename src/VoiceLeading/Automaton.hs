@@ -65,6 +65,9 @@ instance (Show v) => Show (EEvent v) where
 extend :: Event v -> EEvent v
 extend (Event m b) = EEvent m b False False
 
+extendLike :: Event v -> EEvent v -> EEvent v
+extendLike (Event m b) (EEvent _ _ f l) = EEvent m b f l
+
 extendPiece :: Piece v -> [EEvent v]
 extendPiece (Piece _ es) = markLast (markFirst (map extend es))
   where markFirst []      = []

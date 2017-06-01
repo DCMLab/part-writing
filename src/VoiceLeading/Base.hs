@@ -32,7 +32,8 @@ module VoiceLeading.Base (
   , Pitch(..)
   , pitchList
     -- ** Pitch Functions
-  , isRest, isPitch, pitchHolds, pitchMidi, holdPitch
+  , isRest, isPitch, pitchHolds, pitchMidi
+  , holdPitch, unholdPitch
     -- * Events
   , Event(..)
   , Beat
@@ -130,6 +131,10 @@ holdPitch :: Pitch -> Pitch
 holdPitch Rest = Rest
 holdPitch (Pitch i _) = Pitch i True
 
+unholdPitch :: Pitch -> Pitch
+unholdPitch Rest = Rest
+unholdPitch (Pitch i _) = Pitch i False
+
 -----------
 -- Event --
 -----------
@@ -166,6 +171,7 @@ toEv = Event
 --   to 'Pitch' @p@, 'Nothing' otherwise.
 evGetMaybe :: Voice v => Event v -> v -> Maybe Pitch
 evGetMaybe e v = M.lookup v (evMap e)
+{-# INLINE evGetMaybe #-}
 
 -- | Returns the 'Pitch' belonging to a 'Voice' in an 'Event'.
 --   Returns 'Rest' if the voice is not found in the event.
@@ -173,6 +179,7 @@ evGet :: Voice v => Event v -> v -> Pitch
 evGet e v = case evGetMaybe e v of
               (Just p) -> p
               Nothing  -> Rest
+{-# INLINE evGet #-}
 
 instance Voice v => Show (Event v) where
   show (Event m b) = "Event@" ++ show b  ++ showMap m
@@ -218,7 +225,10 @@ eventList = allEvents voiceList pitchList
 -----------
 
 -- | The type 'Piece' wraps '[Event]' and some metadata.
-data Piece v = Piece PieceMeta [Event v]
+data Piece v = Piece
+  { pieceMeta :: PieceMeta
+  , pieceEvents :: [Event v]
+  }
   deriving (Show)
 
 -- | 'KeySig' represents a key signature given by a root (pitch class, c=0)

@@ -16,15 +16,19 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     VoiceLeading.Base
+                     , VoiceLeading.Distribution
                      , VoiceLeading.Automaton
                      , VoiceLeading.IO.Midi
                      , VoiceLeading.IO.LilyPond
   other-modules:       VoiceLeading.Helpers
   build-depends:       base >= 4.7 && < 5
                      , containers
+                     , vector
                      , mtl
+                     , primitive
                      , transformers
                      , machines
+                     , mwc-random
                      , filepath
                      , temporary
                      , process
@@ -33,6 +37,7 @@ library
                      , HCodecs
                      , lilypond
                      , prettify
+                     , terminal-progress-bar
   default-language:    Haskell2010
 
 executable vl-haskell-exe

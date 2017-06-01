@@ -95,4 +95,6 @@ msgToEvent ttb (Event pm pb) msgs = toEv (foldl applyMsg holdAll msgs) beat
         applyMsg m (_,NoteOn c p _)  = M.insert (channelToVoice c) (Pitch p False) m
 
 testPiece :: IO (Piece ChoralVoice)
-testPiece = loadMidi "01AusmeinesHerz.mid"
+testPiece = do
+  (Piece meta evs) <- loadMidi "01AusmeinesHerz.mid"
+  return $ Piece (meta { title = "Aus meines Herzens Grunde" }) evs

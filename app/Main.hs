@@ -3,15 +3,17 @@ module Main where
 import VoiceLeading.Base as VL
 import VoiceLeading.IO.Midi
 import VoiceLeading.IO.LilyPond
+import VoiceLeading.Automaton
+import VoiceLeading.Distribution
 import qualified Data.Map as M
 
-pitchify i = Pitch i False
-joinVoices a b = toEv $ M.fromList [(CF, a), (LowCP, b)]
+-- pitchify i = Pitch i False
+-- joinVoices a b = toEv $ M.fromList [(CF, a), (LowCP, b)]
 
-cantus = map pitchify [57, 60, 62, 59, 60, 65, 62, 64, 60, 59, 57]
-fstCP = Pitch 57 True : map pitchify [57, 53, 55, 48, 50, 53, 52, 57, 56, 57]
+-- cantus = map pitchify [57, 60, 62, 59, 60, 65, 62, 64, 60, 59, 57]
+-- fstCP = Pitch 57 True : map pitchify [57, 53, 55, 48, 50, 53, 52, 57, 56, 57]
 
-cp1 = zipWith joinVoices cantus fstCP
+-- cp1 = zipWith joinVoices cantus fstCP
 
 main :: IO ()
 main = do
@@ -21,7 +23,11 @@ main = do
   let (Piece meta events) = p
       piece = Piece (meta { title = "Aus meines Herzens Grunde" }) events
   -- do something
-  viewPiece piece -- shows the internal representation of a piece as notes
+  newPiece <- gibbsNotePiece1 piece
+  pure ()
+  --viewPiece newPiece -- shows the internal representation of a piece as notes
+  --newPiece <- gibbsEv1 piece
+  --print newPiece
   
   
   -- pieces <- loadPieces "chorales.json" :: IO (Pieces ChoralVoice)

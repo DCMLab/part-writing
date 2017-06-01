@@ -23,5 +23,14 @@ lst `lGet` i = g lst i
           | i < 0 && (-i) <= l = Just $ lst !! (l-i)
           | otherwise          = Nothing
 
+-- | Safely replace the head of a list.
+replaceHead :: [a] -> (a -> a) -> [a]
+replaceHead [] _ = []
+replaceHead (x:xs) f = (f x):xs
+
+safeInit :: [a] -> [a]
+safeInit [] = []
+safeInit lst = init lst
+
 liftMaybe :: (Monad m) => Maybe a -> MaybeT m a
 liftMaybe = MaybeT . return
