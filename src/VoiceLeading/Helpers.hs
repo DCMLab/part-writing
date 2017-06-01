@@ -4,6 +4,7 @@ import Data.Machine (run, source, (~>), ProcessT)
 import Data.Functor.Identity (Identity)
 import qualified Data.Map.Strict as M
 import Data.List (intercalate)
+import Control.Monad.Trans.Maybe
 
 processList :: Foldable t => t i -> ProcessT Identity i o -> [o]
 processList ins p = run $ source ins ~> p
@@ -21,3 +22,6 @@ lst `lGet` i = g lst i
           | i >= 0 && i < l    = Just $ lst !! i
           | i < 0 && (-i) <= l = Just $ lst !! (l-i)
           | otherwise          = Nothing
+
+liftMaybe :: (Monad m) => Maybe a -> MaybeT m a
+liftMaybe = MaybeT . return
