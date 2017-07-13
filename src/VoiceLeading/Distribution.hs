@@ -38,11 +38,11 @@ data Model v = Model { modelFeatures :: [Feature v]
 -- evaluation --
 ----------------
 
-countTrue :: [Bool] -> Double
-countTrue = fromIntegral . length . filter id
+-- countTrue :: [Bool] -> Double
+-- countTrue = fromIntegral . length . filter id
 
 countFeatures :: Voice v => Piece v -> [Feature v] -> FeatureCounts
-countFeatures piece feats = map countTrue trans
+countFeatures piece feats = map sum trans
   where trans = transpose $ runFeaturesOn piece feats
         
 evalModelUnnorm :: FeatureCounts -> ModelParams -> Double
@@ -62,7 +62,7 @@ evalModel fs thetas z = evalModelUnnorm fs thetas / z
 runOnEEvs :: Voice v => [EEvent v] -> [State v] -> Context v -> (AutoEnv v -> a) -> [a]
 runOnEEvs evs sts ctx scanner = map scanner (zipWith3 AutoEnv evs sts (repeat ctx))
 
-runFeaturesOnEEvs :: Voice v => [EEvent v] -> [State v] -> Context v -> [Feature v] -> [[Bool]]
+runFeaturesOnEEvs :: Voice v => [EEvent v] -> [State v] -> Context v -> [Feature v] -> [[Double]]
 runFeaturesOnEEvs evs sts ctx feats = runOnEEvs evs sts ctx listRunner
   where runners        = map runFeature feats
         listRunner env = map ($ env) runners
@@ -133,7 +133,7 @@ evKernel state (orig:evs) ctx model gen evVec = do
         where states = scanl nextState state (ev : init sectevs)
               eev    = extendLike' ev orig
               fs     = runFeaturesOnEEvs (eev:section) states ctx feats
-              counts = map countTrue (transpose fs)
+              counts = map sum (transpose fs)
     qualities prog = Vec.zipWithM (propose prog) evVec (Vec.generate (Vec.length evVec) id)
     --q = Vec.map propose evVec
 
@@ -211,7 +211,7 @@ noteKernel state (orig:evs) ctx model gen pVec vVec = do
                 sectx' = zipWith extendLike sect' (orig:sectext) -- also in extended section
                 states = scanl nextState state (safeInit sect')
                 fs     = runFeaturesOnEEvs sectx' states ctx feats
-                counts = map countTrue (transpose fs)
+                counts = map sum (transpose fs)
         qualities = Vec.map propose evVec
 
 gibbsNotePiece1 :: Piece ChoralVoice -> IO (Piece ChoralVoice)

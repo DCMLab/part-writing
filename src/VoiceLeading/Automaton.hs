@@ -252,7 +252,9 @@ aMotion v1 v2 = motion
 -- features --
 --------------
 
-type Feature v = (Aspect v Bool)
+type Feature v = (Aspect v Double)
+
+-- helpers
 
 fOver :: (v -> Feature v) -> [v] -> [Feature v]
 fOver = map
@@ -260,92 +262,119 @@ fOver = map
 fOver2 :: (v -> v -> Feature v) -> [(v,v)] -> [Feature v]
 fOver2 = map . uncurry
 
+bin :: Bool -> Double
+bin True  = 1
+bin False = 0
+
+pureBin :: Applicative f => Bool -> f Double
+pureBin = pure . bin
+
+dist12 :: Int -> Double
+dist12 dist
+  | dist > 12 = fromIntegral $ 2 ^ (dist - 12)
+  | otherwise = 0
+
+-- actual features
+
 fOutOfRange :: Voice v => v -> Feature v
 fOutOfRange v = do
   (l,u) <- aVoiceRange v
   p     <- aPitchI v
-  pure (p < l || p > u)
+  let distance
+        | p < l = l - p
+        | p > u = p - u
+        | otherwise = 0
+  pure $ fromIntegral (distance*distance) -- alternative: function over distance
 
 fTooFarSA :: Feature ChoralVoice
-fTooFarSA = (>12) <$> aBVI Alto Soprano
+fTooFarSA = dist12 <$> aBVI Alto Soprano
+-- alternative: function over distance
 
 fTooFarAT :: Feature ChoralVoice
-fTooFarAT = (>12) <$> aBVI Tenor Alto
+fTooFarAT = dist12 <$> aBVI Tenor Alto
+-- alternative: function over distance
 
 fUnison :: Voice v => v -> v -> Feature v
-fUnison v1 v2 = (==0) <$> aBVI v1 v2
+fUnison v1 v2 = bin <$> (==0) <$> aBVI v1 v2
 
 fCommonTone :: Voice v => v -> Feature v
 fCommonTone v = do
   pp  <- aPrevPitch v 0
   ps  <- aPitches
   wvi <- aWVI v
-  pure $ pp `elem` ps && wvi /= 0
+  pureBin $ pp `elem` ps && wvi /= 0
 
 fNearestTone :: Voice v => v -> Feature v
-fNearestTone v = or <$> (aVoices >>= mapM check)
-  where check v2 = (<) <$> (abs <$> aCrossInt v v2) <*> (abs <$> aWVI v)
+fNearestTone v = bin <$> or <$> (aVoices >>= mapM violated)
+  where violated v2 = (<) <$> (abs <$> aCrossInt v v2) <*> (abs <$> aWVI v)
+  -- true if rule is violated
 
 fMelodyStays :: Voice v => v -> Feature v
-fMelodyStays v = (&&) <$> ((==0) <$> aWVI v) <*> (not <$> aHolds v)
+fMelodyStays v = bin <$> ((&&) <$> ((==0) <$> aWVI v) <*> (not <$> aHolds v))
 
 fMelodyStep :: Voice v => v -> Feature v
 fMelodyStep v = do
   int <- abs <$> aWVI v
-  pure $ int > 0 && int <= 2
+  pureBin $ int > 0 && int <= 2
 
 fMelodySkip :: Voice v => v -> Feature v
 fMelodySkip v = do
   int <- abs <$> aWVI v
-  pure $ int > 2 && int <= 4
+  pureBin $ int > 2 && int <= 4
 
 fMelodyLeap :: Voice v => v -> Feature v
-fMelodyLeap v = (>4) <$> (abs <$> aWVI v)
+fMelodyLeap v = do
+  int <- abs <$> aWVI v
+  pureBin $ int > 4 && int <= 12
+
+fMelodyOverleap :: Voice v => v -> Feature v
+fMelodyOverleap v = dist12 <$> (abs <$> aWVI v)
+-- alternative: function over distance
 
 fCrossing :: Voice v => v -> v -> Feature v
 fCrossing v1 v2 = do
   bvi <- aBVI v1 v2
-  pure $ v1 < v2 && bvi < 0 || v1 > v2 && bvi > 0
+  pureBin $ v1 < v2 && bvi < 0 || v1 > v2 && bvi > 0
 
 fOverlap :: Voice v => v -> v -> Feature v
 fOverlap v1 v2 = do
   c12 <- aCrossInt v1 v2
   c21 <- aCrossInt v2 v1
-  pure $ v1 < v2 && not (c12 >= 0 && c21 <= 0)
+  pureBin $ v1 < v2 && not (c12 >= 0 && c21 <= 0)
     || v1 > v2 && not (c12 <= 0 && c21 >= 0)
 
 fParFifth :: Voice v => v -> v -> Feature v
 fParFifth v1 v2 = do
   mot <- aMotion v1 v2
   bvi <- aBVI v1 v2
-  pure $ mot == Parallel && mod (abs bvi) 12 == 7
+  pureBin $ mot == Parallel && mod (abs bvi) 12 == 7
 
 fParOctave :: Voice v => v -> v -> Feature v
 fParOctave v1 v2 = do
   mot <- aMotion v1 v2
   bvi <- aBVI v1 v2
-  pure $ mot == Parallel && bvi /= 0 && abs bvi `mod` 12 == 7
+  pureBin $ mot == Parallel && bvi /= 0 && abs bvi `mod` 12 == 7
 
 fConsFifth :: Voice v => v -> v -> Feature v
 fConsFifth v1 v2 = do
   mot  <- aMotion v1 v2
   bvi  <- aBVI v1 v2
   pbvi <- aPrevBVI v1 v2
-  pure $ mot == Contrary && abs bvi `mod` 12 == 7 && abs pbvi `mod` 12 == 7
+  pureBin $ mot == Contrary && abs bvi `mod` 12 == 7 && abs pbvi `mod` 12 == 7
 
 fConsOctave :: Voice v => v -> v -> Feature v
 fConsOctave v1 v2 = do
   mot  <- aMotion v1 v2
   bvi  <- aBVI v1 v2
   pbvi <- aPrevBVI v1 v2
-  pure $ mot == Contrary && bvi /= 0 && abs bvi `mod` 12 == 0 && abs pbvi `mod` 12 == 0
+  pureBin $ mot == Contrary && bvi /= 0 && abs bvi `mod` 12 == 0 && abs pbvi `mod` 12 == 0
 
 fHiddenFifth :: Voice v => v -> v -> Feature v
 fHiddenFifth vlower vupper = do
   mot  <- aMotion vlower vupper
   bvi  <- aBVI vlower vupper
   uwvi <- aWVI vupper
-  pure $ vlower < vupper && mot == Similar
+  pureBin $ vlower < vupper && mot == Similar
     && abs bvi `mod` 12 == 7 && abs uwvi > 2
 
 fHiddenOctave :: Voice v => v -> v -> Feature v
@@ -353,18 +382,18 @@ fHiddenOctave vlower vupper = do
   mot  <- aMotion vlower vupper
   bvi  <- aBVI vlower vupper
   uwvi <- aWVI vupper
-  pure $ vlower < vupper && mot == Similar
+  pureBin $ vlower < vupper && mot == Similar
     && bvi /= 0 && abs bvi `mod` 12 == 0 && abs uwvi > 2
 
 -- running features
 
-runFeature :: Feature v -> AutoEnv v -> Bool
-runFeature feat = maybe False id . runAspect feat
+runFeature :: Feature v -> AutoEnv v -> Double
+runFeature feat = maybe 0 id . runAspect feat
 
-runFeatureOn :: Voice v => Piece v -> Feature v -> [Bool]
+runFeatureOn :: Voice v => Piece v -> Feature v -> [Double]
 runFeatureOn piece feat = runOnPiece piece (runFeature feat)
 
-runFeaturesOn :: Voice v => Piece v -> [Feature v] -> [[Bool]]
+runFeaturesOn :: Voice v => Piece v -> [Feature v] -> [[Double]]
 runFeaturesOn piece feats = runOnPiece piece listRunner
   where runners        = map runFeature feats
         listRunner env = map ($ env) runners
