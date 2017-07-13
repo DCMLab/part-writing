@@ -5,6 +5,7 @@ import VoiceLeading.IO.Midi
 import VoiceLeading.IO.LilyPond
 import VoiceLeading.Automaton
 import VoiceLeading.Distribution
+import VoiceLeading.IO.Plotting
 import qualified Data.Map as M
 
 -- pitchify i = Pitch i False
@@ -23,8 +24,12 @@ main = do
   let (Piece meta events) = p
       piece = Piece (meta { title = "Aus meines Herzens Grunde" }) events
   -- do something
-  newPiece <- gibbsNotePiece1 piece
-  pure ()
+  ps <- corpusPieces
+  plotInfo <- plottingSetup
+  model <- trainPCD ps defaultFeaturesNamed 100 0.1 plottingLogger
+  print model
+  --newPiece <- gibbsNotePiece1 piece
+  --pure ()
   --viewPiece newPiece -- shows the internal representation of a piece as notes
   --newPiece <- gibbsEv1 piece
   --print newPiece

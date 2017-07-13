@@ -4,18 +4,18 @@ module VoiceLeading.Distribution where
 
 import VoiceLeading.Base
 import VoiceLeading.Automaton
-import VoiceLeading.Helpers (lGet, replaceHead, safeInit)
+import VoiceLeading.Helpers (lGet, replaceHead, safeInit, iterateM, norm)
 import VoiceLeading.IO.Midi -- TODO: remove when finished
 import VoiceLeading.IO.LilyPond -- TODO: remove
 
-import Data.List (transpose, tails)
+import Data.List (transpose, tails, foldl1')
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as M
 import Data.Bits (shiftR)
-import System.Random.MWC (GenIO, createSystemRandom, uniform)
+import System.Random.MWC (GenIO, createSystemRandom, uniform, uniformR)
 import System.Random.MWC.Distributions (normal, categorical, uniformShuffle)
 import Control.Monad.Primitive (PrimMonad, PrimState)
-import Control.Monad (foldM, replicateM)
+import Control.Monad (foldM, replicateM, zipWithM)
 import GHC.Base ((<|>), when, liftM)
 
 import System.Mem (performGC)
@@ -31,8 +31,12 @@ type ModelParams = [Double]
 
 type FeatureCounts = [Double]
 
-data Model v = Model { modelFeatures :: [Feature v]
+data Model v = Model { modelFeatures :: [NamedFeature v]
                      , modelParams :: ModelParams }
+
+instance Show v => Show (Model v) where
+  show (Model fs ps) = "Model:\n" ++ concat (zipWith showF fs ps)
+    where showF (NamedFeature _ n v) p = n ++ " " ++ show p ++ "\n"
 
 ----------------
 -- evaluation --
@@ -124,7 +128,7 @@ evKernel state (orig:evs) ctx model gen evVec = do
     lka     = lookahead evs
     section = take lka evs
     sectevs = map extract section
-    feats   = modelFeatures model
+    feats   = map nfFeature $ modelFeatures model
     propose prog ev i = do
       --propose ev = do
       when (i `mod` 80000 == 0) (incProgress prog 80000)
@@ -142,7 +146,7 @@ gibbsEvPiece1 p@(Piece meta _) = do
   gen <- createSystemRandom
   p1 <- normal 0 1 gen
   p2 <- normal 0 1 gen
-  let model = Model testFeatures [p1, p2]
+  let model = Model testFeaturesNamed [p1, p2]
   newEvs <- gibbsStepEv evs ctx model gen
   return $ Piece meta (map extract newEvs)
   where ctx = mkDefaultCtx (keySignature meta)
@@ -153,7 +157,7 @@ gibbsEv1 piece = do
   gen <- createSystemRandom
   p1 <- normal 0 1 gen
   p2 <- normal 0 1 gen
-  let model = Model testFeatures [p1, p2]
+  let model = Model testFeaturesNamed [p1, p2]
       evVec = eventVector
   evKernel firstState evs ctx model gen evVec
   where ctx = mkDefaultCtx (keySignature (pieceMeta piece))
@@ -165,14 +169,18 @@ gibbsEv1 piece = do
 pitchVector :: Vec.Vector Pitch
 pitchVector = Vec.fromList pitchList
 
-gibbsStepNote :: Voice v =>
+gibbsStepNote :: forall v . Voice v =>
   [EEvent v] -> Context v -> Model v -> GenIO -> IO [EEvent v]
 gibbsStepNote evs ctx model gen = do
   newEvs <- evScanGo (return (undefined, firstState)) (init $ tails evs)
   pure $ tail newEvs
   where pVec = pitchVector
         vVec = Vec.fromList voiceList
-        sampleEv state evs = noteKernel state evs ctx model gen pVec vVec
+        featpar = zip (modelFeatures model) (modelParams model)
+        featv v = (v, unzip $ map (\(f,p) -> (nfFeature f, p)) $
+                      filter (\(f,_) -> v `elem` nfVoices f) featpar)
+        feats = M.fromList $ map featv voiceList
+        sampleEv state evs = noteKernel state evs ctx feats gen pVec vVec
         evScanGo acc evss = do
           (accev, accst) <- acc
           rest <- (case evss of
@@ -181,19 +189,20 @@ gibbsStepNote evs ctx model gen = do
           pure $ accev : rest
 
 noteKernel :: forall v . Voice v =>
-  State v -> [EEvent v] -> Context v -> Model v ->
+  State v -> [EEvent v] -> Context v -> M.Map v ([Feature v], [Double]) ->
   GenIO -> Vec.Vector Pitch -> Vec.Vector v -> IO (EEvent v, State v)
 noteKernel state (orig:evs) ctx model gen pVec vVec = do
   voices <- Vec.toList <$> uniformShuffle vVec gen
   ev <- foldM sampleNote (extract orig) voices
   pure $! (extendLike ev orig, nextState state ev)
   where
-    feats = modelFeatures model
     sampleNote :: Event v -> v -> IO  (Event v)
     sampleNote event voice = do
       i <- categorical qualities gen
       pure $! evVec Vec.! i
       where
+        feats   = fst $ model M.! voice
+        params  = snd $ model M.! voice
         -- prepare successor events
         lka     = lookaheadV evs voice -- lookahead
         sectext = take lka evs -- section of extended events to look at
@@ -206,7 +215,7 @@ noteKernel state (orig:evs) ctx model gen pVec vVec = do
         evVec   = case prevp of -- if preceded by pitch, add holding variant
                     Just (Pitch i _) -> evVec' `Vec.snoc` (mkEv $ Pitch i True)
                     _ -> evVec'
-        propose ev = evalModelUnnorm counts (modelParams model)
+        propose ev = evalModelUnnorm counts params
           where sect'  = scanl1 (normalizeTiesScanner False) (ev : sect) -- correct ties
                 sectx' = zipWith extendLike sect' (orig:sectext) -- also in extended section
                 states = scanl nextState state (safeInit sect')
@@ -224,16 +233,62 @@ gibbsNotePiece1 p@(Piece meta _) = do
   return $ Piece meta (map extract newEvs)
   where ctx = mkDefaultCtx (keySignature meta)
         evs = extendPiece p
-        feats = defaultFeatures
+        feats = defaultFeaturesNamed
 
 gibbsNote1 :: Piece ChoralVoice -> IO (EEvent ChoralVoice, State ChoralVoice)
 gibbsNote1 piece = do
   gen <- createSystemRandom
   p1 <- normal 0 1 gen
   p2 <- normal 0 1 gen
-  let model = Model testFeatures [p1, p2]
+  let model = Model testFeaturesNamed [p1, p2]
       pVec = pitchVector
       vVec = Vec.fromList voiceList
-  noteKernel firstState evs ctx model gen pVec vVec
+      featpar = zip (modelFeatures model) (modelParams model)
+      featv v = (v, unzip $ map (\(f,p) -> (nfFeature f, p)) $
+                    filter (\(f,_) -> v `elem` nfVoices f) featpar)
+      feats = M.fromList $ map featv voiceList
+  noteKernel firstState evs ctx feats gen pVec vVec
   where ctx = mkDefaultCtx (keySignature (pieceMeta piece))
         evs = extendPiece piece
+
+--------------
+-- training --
+--------------
+
+expectedFeats :: Voice v => [Piece v] -> [Feature v] -> [Double]
+expectedFeats pieces features = map (/n) counts
+  where n      = fromIntegral $ sum (map (length . pieceEvents) pieces)
+        counts = foldr1 (zipWith (+)) (map ((flip countFeatures) features) pieces)
+
+-- TODO: multiple pieces in chain
+trainPCD :: Voice v => [Piece v] -> [NamedFeature v] -> Int -> Double
+         -> (Model v -> IO ()) -> IO (Model v)
+trainPCD pieces features iterations lRate logger = do
+  gen <- createSystemRandom
+  -- initChainIndex <- uniformR (0, length pieces - 1) gen
+  putStr "counting features of corups... "
+  let feats = map nfFeature features
+      expData = expectedFeats pieces feats
+  putStrLn "done."
+  initChain <- take 1 . Vec.toList <$> uniformShuffle (Vec.fromList pieces) gen
+  let initParams = replicate (length features) 0 -- alternative: normal 0 1 gen?
+      -- initChain  = pieces !! initChainIndex
+      chainMetas = map pieceMeta initChain
+      chainCtxs  = map (mkDefaultCtx . keySignature) chainMetas
+      update (params,chain) = do
+        logger model
+        -- putStr "sampling chain"
+        newChain <- zipWithM (\p c -> gibbsStepNote p c model gen) chain chainCtxs
+        let newChain' = zipWith extractPiece chainMetas newChain
+            expChain  = expectedFeats newChain' feats
+            gradient  = zipWith (-) expData expChain
+            newParams = zipWith (\p g -> p+lRate*g) params gradient
+        putStrLn $ "norm of gradient: " ++ show (norm gradient)
+        pure (newParams, newChain)
+        where model = Model features params
+  -- putStrLn $ show $ Model features initParams
+  putStrLn $ "chain info: " ++ show chainMetas
+  (finalParams,finalChain) <- (iterateM iterations update (initParams, map extendPiece initChain))
+  mapM viewPiece $ zipWith extractPiece chainMetas finalChain
+  putStrLn $ "chain info: " ++ show chainMetas
+  pure $ Model features finalParams

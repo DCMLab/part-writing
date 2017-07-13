@@ -1,4 +1,5 @@
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-|
 Module      : VoiceLeading.Base
 Description : Basic definitions for voice leading analysis
@@ -48,7 +49,7 @@ module VoiceLeading.Base (
     -- ** Piece Metadata
   , PieceMeta(..), nullPieceMeta
     -- *** Key signatures
-  , KeySig(..), mkKeySig, modal
+  , KeySig(..), mkKeySig, modal, scale, leadingTone
     -- * Extended Events and Pieces
   -- , EEvent(..), EPiece, EPieces
   -- , toEPiece, toEPieces
@@ -58,7 +59,8 @@ module VoiceLeading.Base (
 import qualified Data.Map.Strict as M
 import qualified Data.List as L
 import qualified Debug.Trace as DT
-import VoiceLeading.Helpers (showMap)
+import VoiceLeading.Helpers (showMap, rotate)
+import Data.Function.Memoize (memoize, deriveMemoizable)
 
 -----------
 -- Voice --
@@ -224,13 +226,6 @@ eventList = allEvents voiceList pitchList
 -- Piece --
 -----------
 
--- | The type 'Piece' wraps '[Event]' and some metadata.
-data Piece v = Piece
-  { pieceMeta :: PieceMeta
-  , pieceEvents :: [Event v]
-  }
-  deriving (Show)
-
 -- | 'KeySig' represents a key signature given by a root (pitch class, c=0)
 --   and a mode (mod 7): 0=ionian/major, 1=dorian, 2=phrygian, 3=lydian,
 --   4=mixolydian, 5=aeolian/minor, 6=locrian 
@@ -250,6 +245,19 @@ instance Show KeySig where
           mn = ["major", "dorian", "phrygian", "lydian",
                 "mixolydian", "minor", "locrian"] !! mod m 7
 
+$(deriveMemoizable ''KeySig)
+
+cMajor :: [Int]
+cMajor = [2,2,1,2,2,2,1]
+
+scale :: KeySig -> [Int]
+scale = memoize s
+  where s (KeySig root mode) = scanl (\a b -> (a+b) `mod` 12) root (init $ rotate mode cMajor)
+
+leadingTone :: KeySig -> Int
+leadingTone = memoize lt
+  where lt (KeySig root _) = (root - 1) `mod` 12
+
 -- | The type 'PieceMeta' holds metadata for a piece.
 --   This metadata is used for improved export.
 data PieceMeta = PieceMeta
@@ -259,6 +267,13 @@ data PieceMeta = PieceMeta
   deriving (Show, Eq)
 
 nullPieceMeta = PieceMeta "untitled" (4,4) (KeySig 0 0)
+
+-- | The type 'Piece' wraps '[Event]' and some metadata.
+data Piece v = Piece
+  { pieceMeta :: PieceMeta
+  , pieceEvents :: [Event v]
+  }
+  deriving (Show)
 
 -- | The type 'Pieces' is a shortcut for '[Piece]'.
 type Pieces v = [Piece v]

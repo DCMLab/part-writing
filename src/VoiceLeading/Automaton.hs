@@ -78,6 +78,9 @@ extendPiece (Piece _ es) = markLast (markFirst (map extend es))
 extract :: EEvent v -> Event v
 extract ev = Event (ePitch ev) (eBeat ev)
 
+extractPiece :: PieceMeta -> [EEvent v] -> Piece v
+extractPiece meta evs = Piece meta (map extract evs)
+
 -------------------------------
 -- global / external context --
 -------------------------------
@@ -385,6 +388,20 @@ fHiddenOctave vlower vupper = do
   pureBin $ vlower < vupper && mot == Similar
     && bvi /= 0 && abs bvi `mod` 12 == 0 && abs uwvi > 2
 
+-- not in original list, just for testing
+fForeign :: Voice v => v -> Feature v
+fForeign v = do
+  pitch <- aPitchI v
+  key <- aKey
+  pureBin $ not $ (pitch `mod` 12) `elem` scale key
+
+fForeignLT :: Voice v => v -> Feature v
+fForeignLT v = do
+  pitch <- aPitchI v
+  key <- aKey
+  let pc = pitch `mod` 12
+  pureBin $ (not $ pc `elem` scale key) && (pc == leadingTone key)
+
 -- running features
 
 runFeature :: Feature v -> AutoEnv v -> Double
@@ -404,9 +421,6 @@ choralVPairs :: [(ChoralVoice,ChoralVoice)]
 choralVPairs = [ (Bass,Tenor), (Bass,Alto), (Bass,Soprano)
                , (Tenor,Alto), (Tenor,Soprano), (Alto,Soprano)]
 
-testFeatures :: [Feature ChoralVoice]
-testFeatures = [fMelodyStays Soprano, fMelodyStays Alto]
-
 voicePairs = [(Bass, Tenor), (Bass, Alto), (Bass, Soprano),
               (Tenor, Bass), (Tenor, Alto), (Tenor, Soprano),
               (Alto, Bass), (Alto, Tenor), (Alto, Soprano),
@@ -415,24 +429,34 @@ voicePairs = [(Bass, Tenor), (Bass, Alto), (Bass, Soprano),
 voicePairsU = [(Bass,Tenor), (Bass, Alto), (Bass, Soprano),
               (Tenor, Alto), (Tenor, Soprano), (Alto, Soprano)]
 
-name :: Feature v -> String -> (Feature v, String)
-name = (,)
+data NamedFeature v = NamedFeature
+                      { nfFeature :: Feature v
+                      , nfName :: String
+                      , nfVoices :: [v]
+                      }
 
-name1 :: Show v => (v -> Feature v) -> String -> v -> (Feature v, String)
-name1 f n v = (f v, n ++ " " ++ show v)
+name :: Feature v -> String -> [v] -> NamedFeature v
+name = NamedFeature
 
-name2 :: Show v => (v -> v -> Feature v) -> String -> v -> v -> (Feature v, String)
-name2 f n v1 v2 = (f v1 v2, n ++ " " ++ show v1 ++ " " ++ show v2)
+name1 :: Show v => (v -> Feature v) -> String -> v -> NamedFeature v
+name1 f n v = name (f v) (n ++ " " ++ show v) [v]
 
-nOver :: Show v => (v -> Feature v) -> String -> [v] -> [(Feature v, String)]
+name2 :: Show v => (v -> v -> Feature v) -> String -> v -> v -> NamedFeature v
+name2 f n v1 v2 = name (f v1 v2) (n ++ " " ++ show v1 ++ " " ++ show v2) [v1, v2]
+
+nOver :: Show v => (v -> Feature v) -> String -> [v] -> [NamedFeature v]
 nOver f n vs = map (name1 f n) vs
 
-nOver2 :: Show v => (v -> v -> Feature v) -> String -> [(v,v)] -> [(Feature v, String)]
+nOver2 :: Show v => (v -> v -> Feature v) -> String -> [(v,v)] -> [NamedFeature v]
 nOver2 f n vs = map (uncurry $ name2 f n) vs
+
+testFeaturesNamed :: [NamedFeature ChoralVoice]
+testFeaturesNamed = [name1 fMelodyStays "fMelodyStays" Soprano,
+                     name1 fMelodyStays "fMelodyStays" Alto]
 
 defaultFeaturesNamed =
   nOver fOutOfRange "fOutOfRange" voiceList ++
-  [name fTooFarSA "fTooFarSA", name fTooFarAT "fTooFarAT"] ++
+  [name fTooFarSA "fTooFarSA" [Soprano, Alto], name fTooFarAT "fTooFarAT" [Alto, Tenor]] ++
   nOver2 fUnison "fUnison" voicePairsU ++ 
   nOver fCommonTone "fCommonTone" voiceList ++
   nOver fNearestTone "fNearestTone" voiceList ++
@@ -440,17 +464,20 @@ defaultFeaturesNamed =
   nOver fMelodyStep "fMelodyStep" voiceList ++
   nOver fMelodySkip "fMelodySkip" voiceList ++
   nOver fMelodyLeap "fMelodyLeap" voiceList ++
+  nOver fMelodyOverleap "fMelodyOverleap" voiceList ++
   nOver2 fCrossing "fCrossing" voicePairsU ++
   nOver2 fOverlap "fOverlap" voicePairsU ++
   nOver2 fParFifth "fParFifth" voicePairsU ++
   nOver2 fParOctave "fParOctave" voicePairsU ++
-  nOver2 fConsFifth "fParFifth" voicePairsU ++
-  nOver2 fConsOctave "fParOctave" voicePairsU ++
-  nOver2 fHiddenFifth "fParFifth" voicePairsU ++
-  nOver2 fHiddenOctave "fParOctave" voicePairsU
+  nOver2 fConsFifth "fConsFifth" voicePairsU ++
+  nOver2 fConsOctave "fConsOctave" voicePairsU ++
+  nOver2 fHiddenFifth "fHiddenFifth" voicePairsU ++
+  nOver2 fHiddenOctave "fHiddenOctave" voicePairsU ++
+  nOver fForeign "fForeign" voiceList ++
+  nOver fForeignLT "fForeignLT" voiceList
 
 defaultFeatures :: [Feature ChoralVoice]
-defaultFeatures = map fst defaultFeaturesNamed
+defaultFeatures = map nfFeature defaultFeaturesNamed
 
 defaultFeatureNames :: [String]
-defaultFeatureNames = map snd defaultFeaturesNamed
+defaultFeatureNames = map nfName defaultFeaturesNamed

@@ -34,3 +34,14 @@ safeInit lst = init lst
 
 liftMaybe :: (Monad m) => Maybe a -> MaybeT m a
 liftMaybe = MaybeT . return
+
+iterateM :: Monad m => Int -> (a -> m a) -> a -> m a
+iterateM 0 _ a = return a
+iterateM n f a = f a >>= iterateM (n-1) f
+
+norm :: (Foldable f, Functor f, Floating a)  => f a -> a
+norm vector = sqrt $ sum $ fmap (\x -> x * x) vector
+
+rotate :: Int -> [a] -> [a]
+rotate n xs = take l (drop (n `mod` l) (xs ++ xs))
+  where l = length xs

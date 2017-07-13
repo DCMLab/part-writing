@@ -14,24 +14,24 @@ Load and (in the future) save Midi files to / from the VL representation.
 module VoiceLeading.IO.Midi
   ( loadMidi
   , testPiece
+  , corpusPaths, corpusPieces
   ) where
 
 import VoiceLeading.Base
 import Codec.Midi
 import qualified Data.Map.Strict as M
 import Control.Applicative (liftA2)
+import Control.Monad (filterM)
 import Data.List (groupBy, dropWhileEnd, find)
 import Data.Function (on)
 import Data.Ratio
 import System.FilePath (takeBaseName)
+import System.Directory (listDirectory)
 
-choraleFP :: String -> FilePath
-choraleFP chorale = "/home/chfin/Uni/master/data/JSB Chorales/" ++ chorale ++ ".mid"
+-- choraleFP :: String -> FilePath
+-- choraleFP chorale = "/home/chfin/Uni/master/data/JSB Chorales/" ++ chorale ++ ".mid"
 
-chorale = "/home/chfin/Uni/master/data/bach_chorales_bachcentral/01AusmeinesHerz.mid"
-
-vomHimmel = "/home/chfin/Uni/master/code/vl-haskell/data/jsbchorales/uncorrected/024823b2.mid"
-lobeDenHerren = "/home/chfin/Uni/master/code/vl-haskell/data/jsbchorales/uncorrected/013705ch.mid"
+-- chorale = "/home/chfin/Uni/master/data/bach_chorales_bachcentral/01AusmeinesHerz.mid"
 
 isTimeSig :: Message -> Bool
 isTimeSig (TimeSignature _ _ _ _) = True
@@ -101,6 +101,34 @@ msgToEvent ttb (Event pm pb) msgs = toEv (foldl applyMsg holdAll msgs) beat
         nv = length (voiceList :: [v])
         applyMsg m (_,NoteOff c _ _) = if c >= nv then m else M.insert (channelToVoice c) Rest m
         applyMsg m (_,NoteOn c p _)  = if c >= nv then m else M.insert (channelToVoice c) (Pitch p False) m
+
+------------------------
+-- pieces and corpora --
+------------------------
+
+
+corpusDir = "data/jsbchorales/uncorrected/"
+
+vomHimmel = corpusDir ++ "024823b2.mid"
+lobeDenHerren = corpusDir ++ "013705ch.mid"
+
+is4Choral :: FilePath -> IO Bool
+is4Choral fp = do
+  midi <- importFile fp
+  case midi of
+    Left _  -> pure False
+    Right m -> pure $ length (tracks m) == 5
+
+corpusPaths :: IO [FilePath]
+corpusPaths = do
+  files <- listDirectory corpusDir
+  let paths = map (corpusDir++) files
+  filterM is4Choral paths
+
+corpusPieces :: IO [Piece ChoralVoice]
+corpusPieces = do
+  paths <- corpusPaths
+  mapM loadMidi paths
 
 testPiece :: IO (Piece ChoralVoice)
 testPiece = do

@@ -44,7 +44,16 @@ packages:
 #  extra-dep: true
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
-extra-deps: [aeson-1.1.0.0, music-dynamics-literal-1.9.0, music-pitch-literal-1.9.0, prettify-1.0]
+extra-deps:
+- aeson-1.1.0.0
+- music-dynamics-literal-1.9.0
+- music-pitch-literal-1.9.0
+- prettify-1.0
+- Chart-gtk-1.8.2
+- memoize-0.8.1
+#- Plot-ho-matic-0.11.2.0
+#- generic-accessors-0.6.0.1
+#- spatial-math-0.4.0.0
 
 # Override default flag values for local packages and extra-deps
 flags: {}
