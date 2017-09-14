@@ -618,6 +618,12 @@ runFeatureOn piece feat = runOnPiece piece (fst . runFeature emptyMem feat)
 runFeaturesOn :: Voice v => Piece v -> [Feature v] -> [[Double]]
 runFeaturesOn piece feats = runOnPiece piece (listFeature feats)
 
+runOnEEvs :: Voice v => [EEvent v] -> [State v] -> Context v -> (AutoEnv v -> a) -> [a]
+runOnEEvs evs sts ctx scanner = map scanner (zipWith3 AutoEnv evs sts (repeat ctx))
+
+runFeaturesOnEEvs :: Voice v => [EEvent v] -> [State v] -> Context v -> [Feature v] -> [[Double]]
+runFeaturesOnEEvs evs sts ctx feats = runOnEEvs evs sts ctx (listFeature feats)
+
 -- default features
 
 choralVPairs :: [(ChoralVoice,ChoralVoice)]

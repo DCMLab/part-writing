@@ -6,6 +6,7 @@ import VoiceLeading.IO.Midi
 import VoiceLeading.IO.LilyPond
 import VoiceLeading.Automaton
 import VoiceLeading.Distribution
+import VoiceLeading.Learning
 import VoiceLeading.IO.Plotting
 import qualified Data.Map as M
 
