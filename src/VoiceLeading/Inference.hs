@@ -7,9 +7,8 @@ import VoiceLeading.Automaton ( EEvent(..), State(..), Context(..)
                               , firstState, nextState, mkDefaultCtx
                               , extendPiece, extendLike, extractPiece, extract
                               , NamedFeature(..), Feature(..), runFeaturesOnEEvs)
-import VoiceLeading.Distribution ( Model(..), loadModel
-                                 , evalModelUnnormLog, evalPieceUnnormLog
-                                 , meanLogPotential)
+import VoiceLeading.Distribution ( Model(..), meanLogPotential
+                                 , evalModelUnnormLog, evalPieceUnnormLog)
 import VoiceLeading.Learning ( lookaheadV, lookahead, eventVector, extendLike'
                              , gibbsStepNote)
 

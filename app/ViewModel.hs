@@ -1,7 +1,9 @@
 module Main where
 
 import VoiceLeading.Base
-import VoiceLeading.Distribution (Model(..), loadModel)
+import VoiceLeading.Distribution (Model(..))
+
+import VoiceLeading.IO.Model (loadModel)
 import VoiceLeading.IO.Plotting (plottingLogger)
 import VoiceLeading.IO.LilyPond (pieceToLy)
 import VoiceLeading.IO.Midi (loadMidi)

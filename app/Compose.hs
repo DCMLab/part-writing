@@ -4,13 +4,15 @@ import VoiceLeading.Base
 import VoiceLeading.Automaton (nfName)
 import VoiceLeading.Inference ( estimateGibbsAnnealing, uniformRandomPiece'
                               , mapEstimateNotewise)
-import VoiceLeading.Distribution ( modelFeatures, loadModel
+import VoiceLeading.Distribution ( modelFeatures
                                  , meanLogPotential, meanLogPotentialN
                                  , meanFeatCounts, meanFeatCountsN)
 import VoiceLeading.Helpers (RFun(..), rFun)
+
 import VoiceLeading.IO.Midi (corpusDir, corpusPieces, testPiece, loadMidi)
 import VoiceLeading.IO.LilyPond (viewPiece, viewPieceTmp)
 import VoiceLeading.IO.Plotting
+import VoiceLeading.IO.Model (loadModel)
 
 import Options.Applicative
 import Data.Semigroup ((<>))

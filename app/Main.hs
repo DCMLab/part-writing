@@ -2,12 +2,14 @@ module Main where
 
 import VoiceLeading.Base as VL
 import VoiceLeading.Theory
-import VoiceLeading.IO.Midi
-import VoiceLeading.IO.LilyPond
 import VoiceLeading.Automaton
 import VoiceLeading.Distribution
 import VoiceLeading.Learning
 import VoiceLeading.Inference
+
+import VoiceLeading.IO.Model
+import VoiceLeading.IO.Midi
+import VoiceLeading.IO.LilyPond
 import VoiceLeading.IO.Plotting
 import qualified Data.Map as M
 

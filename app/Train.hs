@@ -4,13 +4,14 @@
 
 module Main where
 
+import VoiceLeading.Automaton (defaultFeaturesNamed)
+import VoiceLeading.Learning (trainPCD, TrainingLogEntry(..))
+import VoiceLeading.Helpers (norm, RFun(..), rFun)
+
 import VoiceLeading.IO.Midi (corpusPieces)
 import VoiceLeading.IO.LilyPond (viewPieceTmp)
-import VoiceLeading.Automaton (defaultFeaturesNamed)
-import VoiceLeading.Distribution (saveModel)
-import VoiceLeading.Learning (trainPCD, TrainingLogEntry(..))
+import VoiceLeading.IO.Model (saveModel)
 import VoiceLeading.IO.Plotting (plotOverFeatures)
-import VoiceLeading.Helpers (norm, RFun(..), rFun)
 
 import Options.Applicative
 import Data.Semigroup ((<>), Semigroup(..))

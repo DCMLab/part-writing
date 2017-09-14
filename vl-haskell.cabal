@@ -24,6 +24,7 @@ library
                      , VoiceLeading.Helpers
                      , VoiceLeading.IO.Midi
                      , VoiceLeading.IO.LilyPond
+                     , VoiceLeading.IO.Model
                      , VoiceLeading.IO.Plotting
   other-modules:       VoiceLeading.IO.HorizontalBars
   build-depends:       base >= 4.7 && < 5
