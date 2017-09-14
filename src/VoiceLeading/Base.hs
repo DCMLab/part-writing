@@ -1,5 +1,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-|
 Module      : VoiceLeading.Base
 Description : Basic definitions for voice leading analysis
@@ -63,6 +64,9 @@ import VoiceLeading.Helpers (showMap)
 
 import Data.Function.Memoize (deriveMemoizable)
 
+import GHC.Generics (Generic)
+import Data.Hashable
+
 -----------
 -- Voice --
 -----------
@@ -76,7 +80,7 @@ class (Eq a, Ord a, Show a, Read a, Enum a, Bounded a) => Voice a where
 
 -- | 'ChoralVoice' is an instance of 'Voice'.
 data ChoralVoice = Bass | Tenor | Alto | Soprano
-  deriving (Eq, Ord, Enum, Bounded, Show, Read)
+  deriving (Eq, Ord, Enum, Bounded, Show, Read, Generic)
 
 instance Voice ChoralVoice where
   voiceList = [Bass, Tenor, Alto, Soprano]
@@ -85,11 +89,15 @@ instance Voice ChoralVoice where
   defaultRange Alto    = (55,74)
   defaultRange Soprano = (59,81)
 
+instance Hashable ChoralVoice
+
 data CounterpointVoice = LowCP | CF | HighCP
-  deriving (Eq, Ord, Enum, Bounded, Show, Read)
+  deriving (Eq, Ord, Enum, Bounded, Show, Read, Generic)
 
 instance Voice CounterpointVoice where
   voiceList = [LowCP, CF, HighCP]
+
+instance Hashable CounterpointVoice
 
 -----------
 -- Pitch --
@@ -98,7 +106,7 @@ instance Voice CounterpointVoice where
 -- | The 'Pitch' type represents a single pitch, which can be a rest or a midi pitch.
 --   A pitch can be held from the previous note.
 data Pitch = Rest | Pitch Int Bool
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Generic)
 
 pitchNames = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"]
 showPitch i = (pitchNames !! mod i 12) ++ show (div i 12 - 1)
@@ -107,6 +115,8 @@ instance Show Pitch where
   show Rest            = "R"
   show (Pitch i False) = showPitch i
   show (Pitch i True)  = '~' : showPitch i
+
+instance Hashable Pitch
 
 -- | A list of all 'Pitch'es.
 pitchList :: [Pitch]
@@ -153,7 +163,12 @@ type Beat = Rational
 --   and a bar-relative timestamp.
 data Event v = Event { evMap  :: (M.Map v Pitch)
                      , evBeat :: Beat }
-  deriving (Eq)
+  deriving (Eq, Generic)
+
+instance Hashable v => Hashable (Event v) where
+  hashWithSalt s (Event m b) =
+    s `hashWithSalt` b `hashWithSalt` lst
+    where lst = M.toAscList m
 
 -- | The empty 'Event', containing no mapping from 'Voice's to 'Pitch'es.
 emptyEvent :: Voice v => Event v
@@ -233,7 +248,7 @@ eventList = allEvents voiceList pitchList
 data KeySig = KeySig
   { root :: Int
   , mode :: Int }
-  deriving (Eq)
+  deriving (Eq, Generic)
 
 mkKeySig :: Int -> Int -> KeySig
 mkKeySig r m = KeySig (mod r 12) (mod m 7)
@@ -244,6 +259,7 @@ instance Show KeySig where
           mn = ["major", "dorian", "phrygian", "lydian",
                 "mixolydian", "minor", "locrian"] !! mod m 7
 
+instance Hashable KeySig
 
 $(deriveMemoizable ''KeySig)
 
@@ -253,7 +269,9 @@ data PieceMeta = PieceMeta
   { title :: String
   , timeSignature :: (Integer, Integer)
   , keySignature :: KeySig }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
+
+instance Hashable PieceMeta
 
 nullPieceMeta = PieceMeta "untitled" (4,4) (KeySig 0 0)
 
@@ -262,7 +280,9 @@ data Piece v = Piece
   { pieceMeta :: PieceMeta
   , pieceEvents :: [Event v]
   }
-  deriving (Show)
+  deriving (Show, Generic)
+
+instance Hashable v => Hashable (Piece v)
 
 -- | The type 'Pieces' is a shortcut for '[Piece]'.
 type Pieces v = [Piece v]

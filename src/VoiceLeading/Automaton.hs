@@ -1,5 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module VoiceLeading.Automaton where
@@ -18,6 +19,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import qualified Control.Monad.Trans.State as ST
 import qualified Control.Lens as L
+import Data.Hashable
 
 -----------------
 -- State Model --
@@ -69,6 +71,11 @@ instance (Show v) => Show (EEvent v) where
   show (EEvent ps b f l) = "E" ++ fst ++ lst ++ "@" ++ show b ++ showMap ps
     where fst = if f then "⋊" else ""
           lst = if l then "⋉" else ""
+
+instance Hashable v => Hashable (EEvent v) where
+  hashWithSalt s (EEvent m b f l) =
+    s `hashWithSalt` b `hashWithSalt` f `hashWithSalt` l `hashWithSalt` lst
+    where lst = M.toAscList m
 
 extend :: Event v -> EEvent v
 extend (Event m b) = EEvent m b False False
