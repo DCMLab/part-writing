@@ -38,6 +38,7 @@ library
                      , temporary
                      , process
                      , aeson
+                     , text
                      , bytestring
                      , HCodecs
                      , lilypond

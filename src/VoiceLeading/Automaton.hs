@@ -1,5 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module VoiceLeading.Automaton where
 
@@ -10,7 +11,9 @@ import VoiceLeading.IO.Midi
 
 import qualified Data.Map.Strict as M
 import Data.List (intercalate, nub)
+import qualified Data.Text as T
 import Data.Maybe (mapMaybe)
+import Data.Semigroup ((<>))
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import qualified Control.Monad.Trans.State as ST
@@ -476,23 +479,25 @@ voicePairsU = [(Bass,Tenor), (Bass, Alto), (Bass, Soprano),
 
 data NamedFeature v = NamedFeature
                       { nfFeature :: Feature v
-                      , nfName :: String
+                      , nfName :: T.Text
                       , nfVoices :: [v]
                       }
 
-name :: Feature v -> String -> [v] -> NamedFeature v
+name :: Feature v -> T.Text -> [v] -> NamedFeature v
 name = NamedFeature
 
-name1 :: Show v => (v -> Feature v) -> String -> v -> NamedFeature v
-name1 f n v = name (f v) (n ++ " " ++ show v) [v]
+name1 :: Show v => (v -> Feature v) -> T.Text -> v -> NamedFeature v
+name1 f n v = name (f v) (n <> " " <> T.pack (show v)) [v]
 
-name2 :: Show v => (v -> v -> Feature v) -> String -> v -> v -> NamedFeature v
-name2 f n v1 v2 = name (f v1 v2) (n ++ " " ++ show v1 ++ " " ++ show v2) [v1, v2]
+name2 :: Show v => (v -> v -> Feature v) -> T.Text -> v -> v -> NamedFeature v
+name2 f n v1 v2 = name (f v1 v2)
+                  (n <> " " <> T.pack (show v1) <> " " <> T.pack (show v2))
+                  [v1, v2]
 
-nOver :: Show v => (v -> Feature v) -> String -> [v] -> [NamedFeature v]
+nOver :: Show v => (v -> Feature v) -> T.Text -> [v] -> [NamedFeature v]
 nOver f n vs = map (name1 f n) vs
 
-nOver2 :: Show v => (v -> v -> Feature v) -> String -> [(v,v)] -> [NamedFeature v]
+nOver2 :: Show v => (v -> v -> Feature v) -> T.Text -> [(v,v)] -> [NamedFeature v]
 nOver2 f n vs = map (uncurry $ name2 f n) vs
 
 testFeaturesNamed :: [NamedFeature ChoralVoice]
@@ -524,5 +529,5 @@ defaultFeaturesNamed =
 defaultFeatures :: [Feature ChoralVoice]
 defaultFeatures = map nfFeature defaultFeaturesNamed
 
-defaultFeatureNames :: [String]
+defaultFeatureNames :: [T.Text]
 defaultFeatureNames = map nfName defaultFeaturesNamed

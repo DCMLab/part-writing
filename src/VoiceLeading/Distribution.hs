@@ -19,6 +19,7 @@ import Control.Monad (foldM, replicateM, zipWithM)
 import GHC.Base ((<|>), when, liftM)
 
 import System.Mem (performGC)
+import Data.Text (Text, unpack)
 
 import Debug.Trace as DT
 import System.ProgressBar
@@ -36,7 +37,7 @@ data Model v = Model { modelFeatures :: [NamedFeature v]
 
 instance Show v => Show (Model v) where
   show (Model fs ps) = "Model:\n" ++ concat (zipWith showF fs ps)
-    where showF (NamedFeature _ n v) p = n ++ " " ++ show p ++ "\n"
+    where showF (NamedFeature _ n v) p = (unpack n) ++ " " ++ show p ++ "\n"
 
 ----------------
 -- evaluation --
