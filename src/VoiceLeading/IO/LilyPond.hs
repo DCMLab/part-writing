@@ -10,9 +10,9 @@ Portability : POSIX
 -}
 module VoiceLeading.IO.LilyPond
   ( pieceToLy
-  , viewLy
-  , viewPiece
-  , viewMidi
+  , viewLy, viewLyTmp
+  , viewPiece, viewPieceTmp
+  , viewMidi, viewMidiTmp
   ) where
 
 import VoiceLeading.Base
@@ -29,7 +29,7 @@ import Data.List (sort, genericLength, find)
 import Data.Maybe (mapMaybe)
 
 import System.IO.Temp (withSystemTempDirectory)
-import System.FilePath ((</>), (-<.>))
+import System.FilePath ((</>), (-<.>), dropExtension)
 import System.Process (callCommand)
 
 import qualified Data.Music.Lilypond as L
@@ -40,14 +40,20 @@ import qualified Data.Machine as MC
 
 -- | Convert a 'Piece' to a LilyPond 'String'.
 pieceToLy :: Voice v => Piece v -> String
-pieceToLy p@(Piece meta _) = lyHeader meta ++ P.runPrinter (P.pretty (pieceToLy' p))
+pieceToLy p@(Piece meta _) = lyHeader meta ++
+                             P.runPrinter (P.pretty (pieceToLy' p)) ++
+                             lyFooter
 
 lyHeader :: PieceMeta -> String
 lyHeader meta = "\\version \"2.18.2\"\n"
                 ++ "\\header { title = \"" ++ title meta ++ "\""
                 ++ " subtitle = \" \""
                 ++ " tagline = \"\" }\n"
-                ++ "\\paper { indent = 0 }"
+                ++ "\\paper { indent = 0 }\n"
+                ++ "\\score {\n"
+
+lyFooter :: String
+lyFooter = "\n  \\layout{}\n  \\midi{ \\tempo 4 = 90 }\n}"
 
 pieceToLy' :: Voice v => Piece v -> L.Music
 pieceToLy' p@(Piece meta (e1:_)) = L.New "StaffGroup" Nothing $ L.Simultaneous False staves
@@ -133,19 +139,34 @@ midiToLy fp = do
 -- | Compile a LilyPond 'String' and view the resulting PDF file.
 --   Both the .ly and .pdf files are saved in a temporary directory
 --   and deleted after the PDF viewer is closed.
-viewLy :: String -> IO ()
-viewLy lystr = withSystemTempDirectory "showly" $ \dir -> do
+viewLyTmp :: String -> IO ()
+viewLyTmp lystr = withSystemTempDirectory "showly" $ \dir -> do
   let fp    = dir </> "music.ly"
-      outfp = dir </> "music"
+  viewLy lystr fp
+  putStrLn "press enter to continue (will delete temporary lilypond file)"
+  x <- getLine
+  pure ()
+
+-- | Compile a LilyPond 'String' and view the resulting PDF file.
+--   
+viewLy :: String -> FilePath -> IO ()
+viewLy lystr fp = do
+  let fly = fp -<.> "ly"
   writeFile fp lystr
-  callCommand $ "lilypond -o " ++ outfp ++ " " ++ fp
-  callCommand $ "evince " ++ fp -<.> "pdf"
-  putStrLn $ "wrote file: " ++ fp
+  callCommand $ "lilypond -o " ++ dropExtension fp ++ " " ++ fly
+  callCommand $ "xdg-open " ++ fp -<.> "pdf"
+  putStrLn $ "wrote file: " ++ fly
+
+viewPiece :: Voice v => Piece v -> FilePath -> IO ()
+viewPiece piece = viewLy (pieceToLy piece)
 
 -- | View a 'Piece' using LilyPond (cf. 'viewLy').
-viewPiece :: Voice v => Piece v -> IO ()
-viewPiece piece = viewLy $ pieceToLy piece
+viewPieceTmp :: Voice v => Piece v -> IO ()
+viewPieceTmp piece = viewLyTmp $ pieceToLy piece
 
 -- | Load a MIDI file and view its representation using LilyPond (cf. 'viewLy').
-viewMidi :: FilePath -> IO ()
-viewMidi fp = midiToLy fp >>= viewLy
+viewMidi :: FilePath -> FilePath -> IO ()
+viewMidi fin fout = midiToLy fin >>= (flip viewLy) fout
+
+viewMidiTmp :: FilePath -> IO ()
+viewMidiTmp fin = midiToLy fin >>= viewLyTmp
