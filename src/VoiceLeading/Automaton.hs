@@ -399,6 +399,12 @@ fOverlap v1 v2 = do
   pureBin $ v1 < v2 && not (c12 >= 0 && c21 <= 0)
     || v1 > v2 && not (c12 <= 0 && c21 >= 0)
 
+fParUnison :: Voice v => v -> v -> Feature v
+fParUnison v1 v2 = do
+  mot <- aMotion v1 v2
+  bvi <- aBVI v1 v2
+  pureBin $ mot == Parallel && bvi == 0
+
 fParFifth :: Voice v => v -> v -> Feature v
 fParFifth v1 v2 = do
   mot <- aMotion v1 v2
@@ -441,6 +447,144 @@ fHiddenOctave vlower vupper = do
   pureBin $ vlower < vupper && mot == Similar
     && bvi /= 0 && abs bvi `mod` 12 == 0 && abs uwvi > 2
 
+fNoDoubling :: Voice v => v -> v -> Feature v
+fNoDoubling v1 v2 = do
+  bvi <- aBVI v1 v2
+  pureBin $ bvi `mod` 12 /= 0
+
+fLTDoubling :: Voice v => v -> v -> Feature v
+fLTDoubling v1 v2 = do
+  bvi <- aBVI v1 v2
+  p   <- aPitchI v1
+  key <- aKey
+  pureBin $ (bvi `mod` 12 == 0) && (p `mod` 12 == leadingTone key)
+
+fForeignDoubling :: Voice v => v -> v -> Feature v
+fForeignDoubling v1 v2 = do
+  bvi <- aBVI v1 v2
+  p   <- aPitchI v1
+  key <- aKey
+  pureBin $ (bvi `mod` 12 == 0) && (not $ (p `mod` 12) `elem` scale key)
+
+fRootDoubling :: Voice v => v -> v -> Feature v
+fRootDoubling v1 v2 = do
+  bvi  <- aBVI v1 v2
+  (root,_) <- aRootI
+  p    <- aPitchI v1
+  pureBin $ (bvi `mod` 12 == 0) && (p `mod` 12 == root)
+
+f5thDoubling :: Voice v => v -> v -> Feature v
+f5thDoubling v1 v2 = do
+  bvi  <- aBVI v1 v2
+  (root,_) <- aRootI
+  p    <- aPitchI v1
+  pureBin $ (bvi `mod` 12 == 0) && ((p - root) `mod` 12 == 7)
+
+f3rdDoubling :: Voice v => v -> v -> Feature v
+f3rdDoubling v1 v2 = do
+  bvi  <- aBVI v1 v2
+  (root,_) <- aRootI
+  p    <- aPitchI v1
+  let relp = (p - root) `mod` 12
+  pureBin $ (bvi `mod` 12 == 0) && (relp == 3 || relp == 4)
+
+fTensionDoubling :: Voice v => v -> v -> Feature v
+fTensionDoubling v1 v2 = do
+  bvi  <- aBVI v1 v2
+  (root,_) <- aRootI
+  p    <- aPitchI v1
+  let relp = (p - root) `mod` 12
+  pureBin $ (bvi `mod` 12 == 0) && not (relp `elem` [0,3,4,7])
+
+fChord :: Feature v
+fChord = snd <$> aRootI
+
+-- TODO doublingPref, chords, position,
+
+fSkipThenStep :: Voice v => v -> Feature v
+fSkipThenStep v = do
+  pwvi <- abs <$> aPrevWVI v
+  wvi  <- abs <$> aWVI v
+  new  <- not <$> aHolds v
+  pureBin $ new && 2 < pwvi && pwvi <= 4 && wvi <= 2
+
+fSkipThenArpg :: Voice v => v -> Feature v
+fSkipThenArpg v = do
+  pwvi <- aPrevWVI v
+  wvi  <- aWVI v
+  new  <- not <$> aHolds v
+  pureBin $ new && ( pwvi == 4 && (wvi == 3 || wvi == 5) ||
+                     pwvi == 3 && (wvi == 4 || wvi == 5) ||
+                     pwvi == -5 && (wvi == -3 || wvi == -5) ||
+                     pwvi == -3 && (wvi == -4 || wvi == -5) )
+
+fSkipThenElse v = do
+  pwvi <- abs <$> aPrevWVI v
+  wvi  <- abs <$> aWVI v
+  arpg <- fSkipThenArpg v
+  new  <- not <$> aHolds v
+  pureBin $ new && 2 < pwvi && pwvi <= 4 && wvi > 2 && arpg == 0
+
+fSLeapThenSimStep v = do
+  pwvi <- aPrevWVI v
+  wvi  <- aWVI v
+  new  <- not <$> aHolds v
+  pureBin $
+    4 < pwvi && pwvi <= 7 && 0 < wvi && wvi <= 2 ||
+    -4 >= pwvi && pwvi >= -7 && 0 > wvi && wvi >= -2
+
+fSLeapThenConStep v = do
+  pwvi <- aPrevWVI v
+  wvi  <- aWVI v
+  new  <- not <$> aHolds v
+  pureBin $ new && ( 4 < pwvi && pwvi <= 7 && 0 > wvi && wvi >= -2 ||
+                     -4 >= pwvi && pwvi >= -7 && 0 < wvi && wvi <= 2 )
+
+fSLeapThenElse v = do
+  pwvi <- abs <$> aPrevWVI v
+  wvi  <- abs <$> aWVI v
+  new  <- not <$> aHolds v
+  pureBin $ new && 4 < pwvi && pwvi <= 7 && wvi > 2
+
+fLLeapThenConStep v = do
+  pwvi <- aPrevWVI v
+  wvi  <- aWVI v
+  new  <- not <$> aHolds v
+  pureBin $ new && ( pwvi > 7 && 0 > wvi && wvi >= -2 ||
+                     pwvi < -7 && 0 < wvi && wvi <= 2 )
+
+fLLeapThenElse v = do
+  pwvi  <- abs <$> aPrevWVI v
+  lltcs <- fLLeapThenConStep v
+  new   <- not <$> aHolds v 
+  pureBin $ new && pwvi > 7 && lltcs == 0
+
+fDissLeap v = do
+  wvi <- abs <$> aWVI v
+  pureBin $
+    (wvi `mod` 12) `elem` [6,10,11] ||
+    wvi > 12 && (wvi `mod` 12) `elem` [1,2]
+
+fRelStationary v1 v2 = do
+  mot <- aMotion v1 v2
+  pureBin $ mot == Stationary
+
+fRelOblique v1 v2 = do
+  mot <- aMotion v1 v2
+  pureBin $ mot == Oblique
+
+fRelParallel v1 v2 = do
+  mot <- aMotion v1 v2
+  pureBin $ mot == Parallel
+
+fRelSimilar v1 v2 = do
+  mot <- aMotion v1 v2
+  pureBin $ mot == Similar
+
+fRelContrary v1 v2 = do
+  mot <- aMotion v1 v2
+  pureBin $ mot == Contrary
+
 -- not in original list, just for testing
 fForeign :: Voice v => v -> Feature v
 fForeign v = do
@@ -454,6 +598,10 @@ fForeignLT v = do
   key <- aKey
   let pc = pitch `mod` 12
   pureBin $ (not $ pc `elem` scale key) && (pc == leadingTone key)
+
+fMelodyHolds :: Voice v => v -> Feature v
+fMelodyHolds v = do
+  bin <$> aHolds v
 
 -- running features
 
@@ -517,6 +665,7 @@ defaultFeaturesNamed =
   nOver2 fUnison "fUnison" voicePairsU ++ 
   nOver fCommonTone "fCommonTone" voiceList ++
   nOver fNearestTone "fNearestTone" voiceList ++
+  nOver fMelodyHolds "fMelodyHolds" voiceList ++ -- added
   nOver fMelodyStays "fMelodyStays" voiceList ++
   nOver fMelodyStep "fMelodyStep" voiceList ++
   nOver fMelodySkip "fMelodySkip" voiceList ++
@@ -524,6 +673,7 @@ defaultFeaturesNamed =
   nOver fMelodyOverleap "fMelodyOverleap" voiceList ++
   nOver2 fCrossing "fCrossing" voicePairsU ++
   nOver2 fOverlap "fOverlap" voicePairsU ++
+  nOver2 fParUnison "fParUnison" voicePairsU ++
   nOver2 fParFifth "fParFifth" voicePairsU ++
   nOver2 fParOctave "fParOctave" voicePairsU ++
   nOver2 fConsFifth "fConsFifth" voicePairsU ++
@@ -532,6 +682,29 @@ defaultFeaturesNamed =
   nOver2 fHiddenOctave "fHiddenOctave" voicePairsU ++
   nOver fForeign "fForeign" voiceList ++ -- added
   nOver fForeignLT "fForeignLT" voiceList ++ -- added
+  nOver fSkipThenStep "fSkipThenStep" voiceList ++
+  nOver fSkipThenArpg "fSkipThenArpg" voiceList ++
+  nOver fSkipThenElse "fSkipThenElse" voiceList ++
+  nOver fSLeapThenSimStep "fSLeapThenSimStep" voiceList ++
+  nOver fSLeapThenConStep "fSLeapThenConStep" voiceList ++
+  nOver fSLeapThenElse "fSLeapThenElse" voiceList ++
+  nOver fLLeapThenConStep "fLLeapThenConStep" voiceList ++
+  nOver fLLeapThenElse "fLLeapThenElse" voiceList ++
+  nOver fDissLeap "fDissLeap" voiceList ++
+  nOver2 fRelStationary "fRelStationary" voicePairsU ++
+  nOver2 fRelOblique "fRelOblique" voicePairsU ++
+  nOver2 fRelParallel "fRelParallel" voicePairsU ++
+  nOver2 fRelSimilar "fRelSimilar" voicePairsU ++
+  nOver2 fRelContrary "fRelContrary" voicePairsU ++
+  nOver2 fNoDoubling "fNoDoubling" voicePairsU ++
+  nOver2 fLTDoubling "fLTDoubling" voicePairsU ++
+  nOver2 fForeignDoubling "fForeignDoubling" voicePairsU ++
+  nOver2 fRootDoubling "fRootDoubling" voicePairsU ++
+  nOver2 f5thDoubling "f5thDoubling" voicePairsU ++
+  nOver2 f3rdDoubling "f3rdDoubling" voicePairsU ++
+  nOver2 fTensionDoubling "fTensionDoubling" voicePairsU ++
+  [name fChord "fChord" [Soprano, Alto, Tenor, Bass]]
+
 
 defaultFeatures :: [Feature ChoralVoice]
 defaultFeatures = map nfFeature defaultFeaturesNamed
