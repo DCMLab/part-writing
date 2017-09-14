@@ -107,7 +107,7 @@ msgToEvent ttb (Event pm pb) msgs = toEv (foldl applyMsg holdAll msgs) beat
 ------------------------
 
 
-corpusDir = "data/jsbchorales/uncorrected/"
+corpusDir = "data/corpus/"
 
 vomHimmel = corpusDir ++ "024823b2.mid"
 lobeDenHerren = corpusDir ++ "013705ch.mid"
