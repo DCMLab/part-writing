@@ -1,15 +1,16 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module VoiceLeading.Distribution where
 
 import VoiceLeading.Base
 import VoiceLeading.Automaton
 import VoiceLeading.Helpers (lGet, replaceHead, safeInit, iterateM, norm)
-import VoiceLeading.IO.Midi -- TODO: remove when finished
-import VoiceLeading.IO.LilyPond -- TODO: remove
 
-import Data.List (transpose, tails, foldl1')
 import qualified Data.Vector as Vec
+import Data.List (transpose, findIndex, sortOn)
 import qualified Data.Map.Strict as M
 import Data.Bits (shiftR)
 import System.Random.MWC (GenIO, createSystemRandom, uniform, uniformR)
@@ -17,12 +18,17 @@ import System.Random.MWC.Distributions (normal, categorical, uniformShuffle)
 import Control.Monad.Primitive (PrimMonad, PrimState)
 import Control.Monad (foldM, replicateM, zipWithM)
 import GHC.Base ((<|>), when, liftM)
+import Data.Maybe (mapMaybe)
 
 import System.Mem (performGC)
+import Data.Aeson
+import Data.Aeson.Types
+import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.Text (Text, unpack)
 
 import Debug.Trace as DT
 import System.ProgressBar
+import qualified Data.ByteString.Lazy as B
 
 -----------------
 -- basic types --
@@ -293,3 +299,50 @@ trainPCD pieces features iterations lRate logger = do
   mapM viewPiece $ zipWith extractPiece chainMetas finalChain
   putStrLn $ "chain info: " ++ show chainMetas
   pure $ Model features finalParams
+
+------------------------
+-- saving and loading --
+------------------------
+
+instance ToJSON (Model v) where
+  toJSON (Model feats params) = object $ zipWith mkPair feats params
+    where mkPair f p = nfName f .= p
+
+instance FromJSON (Model ChoralVoice) where
+  parseJSON object = do
+    mm <- parseJSON object :: Parser (M.Map Text Double)
+    let pairs = map fst $ sortOn snd (mapMaybe mkTriple (M.toList mm))
+    pure $ Model (map fst pairs) (map snd pairs)
+    where mkTriple (str,val) = case findIndex (\nf -> nfName nf == str) defaultFeaturesNamed of
+                               Nothing -> Nothing
+                               Just i -> Just ((defaultFeaturesNamed !! i, val), i)
+
+data ModelFile v = ModelFile
+                 { mfDesc  :: Maybe String
+                 , mfOpts  :: Maybe String
+                 , mfModel :: (Model v)}
+  deriving (Show)
+
+instance FromJSON (ModelFile ChoralVoice) where
+  parseJSON = withObject "ModelFile" $ \o -> ModelFile
+    <$> o .: "description"
+    <*> o .: "options"
+    <*> o .: "model"
+
+instance ToJSON (ModelFile v) where
+  toJSON (ModelFile desc opts model) =
+    object [ "description" .= desc
+           , "options" .= opts
+           , "model" .= model ]
+
+saveModel :: Model v -> String -> String -> FilePath -> IO ()
+saveModel model desc opts fp = B.writeFile fp (encodePretty mf)
+  where mf = ModelFile (Just desc) (Just opts) model
+
+loadModel :: FilePath -> IO (Model ChoralVoice)
+loadModel fp = do
+  str <- B.readFile fp
+  let mf = (decode str)-- :: Maybe (ModelFile ChoralVoice)
+  case mf of
+    Just m  -> pure $ mfModel m
+    Nothing -> error "could not parse model"
