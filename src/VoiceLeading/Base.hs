@@ -6,24 +6,24 @@ Module      : VoiceLeading.Base
 Description : Basic definitions for voice leading analysis
 Copyright   : (c) Christoph Finkensiep, 2017
 License     : MIT
-Maintainer  : chfin@freenet.de
+Maintainer  : chfin@chfin.de
 Stability   : experimental
 Portability : POSIX
 
 Voice leading rules describe restrictions and preferences regarding the simultaneous movement of two or more voices.
-Most rules mention either configurations of voices at a single point in time (unary) or the movement of voices from one configuration to its successor (binary).
+This module provides the basic types for representing a piece of music in a format
+that can be used to apply formal voice leading rules.
+These rules are defined in 'VoiceLeading.Automaton'
 
-__Note: The following is not entirely up to date, refer to the individual documentation.__
-
-This module provides basic types and functions for describing voice leading rules.
 A piece of music is represented as a sequence of voice configurations called events.
 An event is a mapping from voices to pitches and describes the pitch sounding in each voice at a given point in the piece.
 As a special case, since a voice can have no pitch at all at some point, an event might also map a voice to a rest.
+Furthermore, a pitch can be held over from the previous event.
 The 'Voice', 'Pitch', and, 'Event' types are used to represent voices, pitches, and events, respectively.
 
-A piece is represented as a list of voice leading events, so the type synonyms 'Piece' and 'Pieces' for 'Lists's of 'Event's or 'Piece's, respectively, can be used for that.
-Additionally, a type for extended events (which includes a "start" event and an "end" event) is provided by 'EEvent' and complemented by the corresponding 'EPiece' and 'EPieces' types.
-These representations should be used in formal language or markov model contexts where the boundaries of an event sequence can be marked by "start" and "end" events.
+A piece is represented as a list of voice leading events and a record of metadata including a title, and the key and time signatures.
+
+For details refer to the following sections.
 -}
 module VoiceLeading.Base (
     -- * Voices
@@ -52,10 +52,6 @@ module VoiceLeading.Base (
   , PieceMeta(..), nullPieceMeta
     -- *** Key signatures
   , KeySig(..), mkKeySig
-    -- * Extended Events and Pieces
-  -- , EEvent(..), EPiece, EPieces
-  -- , toEPiece, toEPieces
-  -- , eEventList
   ) where
 
 import qualified Data.Map.Strict as M
@@ -73,13 +69,15 @@ import Data.Hashable
 -----------
 
 -- | The 'Voice' class represents voices.
+--   An implementation must provide a list of all voices
+--   and a default pitch range for each voice.
 class (Eq a, Ord a, Show a, Read a, Enum a, Bounded a) => Voice a where
   -- | A list of all 'Voice's.
   voiceList :: [a]
   defaultRange :: a -> (Int, Int)
   defaultRange v = (38,81) -- some kind of vocal range default values
 
--- | 'ChoralVoice' is an instance of 'Voice'.
+-- | 'ChoralVoice' is an instance of 'Voice' used for four-part writing.
 data ChoralVoice = Bass | Tenor | Alto | Soprano
   deriving (Eq, Ord, Enum, Bounded, Show, Read, Generic)
 
@@ -92,6 +90,9 @@ instance Voice ChoralVoice where
 
 instance Hashable ChoralVoice
 
+-- | 'CounterpointVoice' is an alternative implementation of 'Voice'
+--   which can be used to model two-part counterpoint.
+--   It is currently not used by the rest of the code.
 data CounterpointVoice = LowCP | CF | HighCP
   deriving (Eq, Ord, Enum, Bounded, Show, Read, Generic)
 
@@ -105,11 +106,14 @@ instance Hashable CounterpointVoice
 -----------
 
 -- | The 'Pitch' type represents a single pitch, which can be a rest or a midi pitch.
---   A pitch can be held from the previous note.
+--   A pitch can be held from the previous event.
 data Pitch = Rest | Pitch Int Bool
   deriving (Eq, Ord, Generic)
 
+-- the chromatic names of all 12 pitch classes, used for 'show'ing
 pitchNames = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"]
+
+-- convert a midi pitch to a human readable name
 showPitch i = (pitchNames !! mod i 12) ++ show (div i 12 - 1)
 
 instance Show Pitch where
@@ -128,23 +132,27 @@ isRest :: Pitch -> Bool
 isRest Rest        = True
 isRest (Pitch _ _) = False
 
--- | Return 'True' the given 'Pitch' is a midi pitch (i.e., not 'Rest')
+-- | Return 'True' if the given 'Pitch' is a midi pitch (i.e., not 'Rest')
 isPitch :: Pitch -> Bool
 isPitch Rest        = False
 isPitch (Pitch _ _) = True
 
+-- | Return 'True' if the given 'Pitch' is held over from the previous event.
 pitchHolds :: Pitch -> Bool
 pitchHolds Rest        = False
 pitchHolds (Pitch _ h) = h
 
+-- | Return the midi pitch of a 'Pitch' (or 'Nothing' for a rest).
 pitchMidi :: Pitch -> Maybe Int
 pitchMidi Rest        = Nothing
 pitchMidi (Pitch i _) = Just i
 
+-- | Return a copy of the given 'Pitch' that holds over.
 holdPitch :: Pitch -> Pitch
 holdPitch Rest = Rest
 holdPitch (Pitch i _) = Pitch i True
 
+-- | Return a copy of the given 'Pitch' that does not hold over.
 unholdPitch :: Pitch -> Pitch
 unholdPitch Rest = Rest
 unholdPitch (Pitch i _) = Pitch i False
@@ -155,13 +163,18 @@ unholdPitch (Pitch i _) = Pitch i False
 
 -- | The type 'Beat' is a bar-relative timestamp (alias for 'Int').
 --   The beginning of the bar is encoded as 0 and higher values are proportional to time,
---   but otherwise the interpretation of a value is context-dependent.
+--   one beat (i.e. time division from the signature) has length 1.
+--   For example, in a 4/4 bar, each quarter note has length 1 (at times 0, 1, 2, 3).
+--   In a 2/2 bar, on the other hand, each half note has length 1.
 type Beat = Rational
 
 -- | The 'Event' type represents a single voice leading event.
 --   An event is formalized as a mapping from voices to pitches,
 --   so 'Event' has a strict 'Data.Map.Strict.Map' from 'Voice' to 'Pitch'
---   and a bar-relative timestamp.
+--   and a bar-relative timestamp (cf. 'Beat').
+--   Events are parameterized on the type of voice.
+--   As a consequnce, pretty much all of the code that uses events is
+--   parameterized on the voice type as well, some with a @Voice v =>@ constraint.
 data Event v = Event { evMap  :: (M.Map v Pitch)
                      , evBeat :: Beat }
   deriving (Eq, Generic)
@@ -175,16 +188,13 @@ instance Hashable v => Hashable (Event v) where
 emptyEvent :: Voice v => Event v
 emptyEvent = addRests $ Event M.empty 0
 
+-- | 'True' iff the event is empty or consists of rests only
 isEmptyEvent :: Voice v => Event v -> Bool
 isEmptyEvent (Event e _) = all isRest (M.elems e)
 
 -- | Turns a 'Data.Map.Strict.Map' into an 'Event'.
 toEv :: Voice v => M.Map v Pitch -> Beat -> Event v
 toEv = Event
-
--- | Turns an 'Event' into a 'Data.Map.Strict.Map'.
--- fromEv :: Voice v => Event v -> M.Map v Pitch
--- fromEv (Event m) = m
 
 -- | @evGetMaybe e v@ returns @'Just' p@ if the 'Event' @e@ maps 'Voice' @v@
 --   to 'Pitch' @p@, 'Nothing' otherwise.
@@ -251,6 +261,8 @@ data KeySig = KeySig
   , mode :: Int }
   deriving (Eq, Generic)
 
+-- | Creates a 'KeySig' from a root and a mode (cf. 'KeySig').
+--   Root and mode are taken mod 12 and mod 7, respectively.
 mkKeySig :: Int -> Int -> KeySig
 mkKeySig r m = KeySig (mod r 12) (mod m 7)
 
@@ -265,7 +277,8 @@ instance Hashable KeySig
 $(deriveMemoizable ''KeySig)
 
 -- | The type 'PieceMeta' holds metadata for a piece.
---   This metadata is used for improved export.
+--   This includes a title, a time signature (4/4 = @(4,4)@),
+--   and a key signature (cf. 'KeySig')
 data PieceMeta = PieceMeta
   { title :: String
   , timeSignature :: (Integer, Integer)
@@ -274,9 +287,11 @@ data PieceMeta = PieceMeta
 
 instance Hashable PieceMeta
 
+-- | The "default" metadata, used if nothing else is known.
 nullPieceMeta = PieceMeta "untitled" (4,4) (KeySig 0 0)
 
--- | The type 'Piece' wraps '[Event]' and some metadata.
+-- | The type 'Piece' wraps '[Event]' and piece metadata.
+--   Like 'Event' this is parameterized on the voice type.
 data Piece v = Piece
   { pieceMeta :: PieceMeta
   , pieceEvents :: [Event v]
