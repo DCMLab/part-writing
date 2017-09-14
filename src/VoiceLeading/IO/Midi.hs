@@ -14,7 +14,7 @@ Load and (in the future) save Midi files to / from the VL representation.
 module VoiceLeading.IO.Midi
   ( loadMidi
   , testPiece
-  , corpusPaths, corpusPieces
+  , corpusPaths, corpusPieces, corpusDir
   ) where
 
 import VoiceLeading.Base
@@ -26,7 +26,7 @@ import Data.List (groupBy, dropWhileEnd, find)
 import Data.Function (on)
 import Data.Ratio
 import System.FilePath (takeBaseName)
-import System.Directory (listDirectory)
+import System.Directory (listDirectory, renameFile)
 
 -- choraleFP :: String -> FilePath
 -- choraleFP chorale = "/home/chfin/Uni/master/data/JSB Chorales/" ++ chorale ++ ".mid"
@@ -134,3 +134,21 @@ testPiece :: IO (Piece ChoralVoice)
 testPiece = do
   (Piece meta evs) <- loadMidi "01AusmeinesHerz.mid"
   return $ Piece (meta { title = "Aus meines Herzens Grunde" }) evs
+
+-- helpers
+
+convertKey :: FilePath -> IO ()
+convertKey fp = do
+  mf <- importFile fp
+  case mf of
+    Left _ -> pure ()
+    Right midi -> do
+      let cmf = convKeys midi
+      exportFile (fp++".2") cmf
+      renameFile (fp++".2") fp
+  where conv (a, KeySignature accs key) = (a, KeySignature accs' key)
+          where accs' = if key == 1
+                        then accs + 3
+                        else accs
+        conv (a,msg) = (a,msg)
+        convKeys (Midi ft td ts) = Midi ft td (map (map conv) ts)
