@@ -1,15 +1,23 @@
 {-|
 Module      : VoiceLeading.IO.LilyPond
-Description : View the Voice Leading representation as sheet music using LilyPond.
+Description : View the pieces as sheet music using LilyPond.
 Copyright   : (c) Christoph Finkensiep, 2017
 License     : MIT
-Maintainer  : chfin@freenet.de
+Maintainer  : chfin@chfin.de
 Stability   : experimental
-Portability : POSIX
+Portability : Linux (requires xdg-open)
 
+This modules allows the conversion of a 'Piece' to a 'String' in
+Lilypond format.
+The pure conversion is done by 'pieceToLy'.
+Additionally, a range of converter functions exist to save and compile
+the LilyPond representation, and to import directly from Midi.
+The export functions all have a variant, where output and compilation are done
+in a temporary directory.
 -}
 module VoiceLeading.IO.LilyPond
   ( pieceToLy
+  , midiToLy
   , viewLy, viewLyTmp
   , viewPiece, viewPieceTmp
   , viewMidi, viewMidiTmp
@@ -131,6 +139,7 @@ midiToNote k p = L.NotePitch (midiToPitch k p) Nothing
 -- IO section
 -------------
 
+-- | Loads a Midi file and returns a LilyPond string.
 midiToLy :: FilePath -> IO String
 midiToLy fp = do
   piece <- loadMidi fp :: IO (Piece ChoralVoice)
@@ -148,7 +157,6 @@ viewLyTmp lystr = withSystemTempDirectory "showly" $ \dir -> do
   pure ()
 
 -- | Compile a LilyPond 'String' and view the resulting PDF file.
---   
 viewLy :: String -> FilePath -> IO ()
 viewLy lystr fp = do
   let fly = fp -<.> "ly"
@@ -157,10 +165,12 @@ viewLy lystr fp = do
   callCommand $ "xdg-open " ++ fp -<.> "pdf"
   putStrLn $ "wrote file: " ++ fly
 
+-- | View a 'Piece' using LilyPond (cf. 'viewLy').
 viewPiece :: Voice v => Piece v -> FilePath -> IO ()
 viewPiece piece = viewLy (pieceToLy piece)
 
--- | View a 'Piece' using LilyPond (cf. 'viewLy').
+-- | View a 'Piece' using LilyPond (cf. 'viewLyTmp').
+--   Uses a temporary directory.
 viewPieceTmp :: Voice v => Piece v -> IO ()
 viewPieceTmp piece = viewLyTmp $ pieceToLy piece
 
@@ -168,5 +178,7 @@ viewPieceTmp piece = viewLyTmp $ pieceToLy piece
 viewMidi :: FilePath -> FilePath -> IO ()
 viewMidi fin fout = midiToLy fin >>= (flip viewLy) fout
 
+-- | Load a MIDI file and view its representation using LilyPond (cf. 'viewLyTmp').
+--   Uses a temporary directory.
 viewMidiTmp :: FilePath -> IO ()
 viewMidiTmp fin = midiToLy fin >>= viewLyTmp
