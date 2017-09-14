@@ -46,40 +46,40 @@ are WIP and should not be used.
 
 ### Basic Modules (`src/VoiceLeading/`)
 
-**VoiceLeading.Base** - contains the code for representing music as
+VoiceLeading.Base - contains the code for representing music as
 a sequence of events.
 
-**VoiceLeading.Theory** - some simple music theory functions.
+VoiceLeading.Theory - some simple music theory functions.
 
-**VoiceLeading.Helpers** - helper functions used across the project.
+VoiceLeading.Helpers - helper functions used across the project.
 
 ### Functionality Modules (`src/VoiceLeading/`)
 
-**VoiceLeading.Automaton** - defines the state machine and features
+VoiceLeading.Automaton - defines the state machine and features
 and contains code for running features over a piece.
 
-**VoiceLeading.Distribution** - defines models that represent a
+VoiceLeading.Distribution - defines models that represent a
 distribution using features and weights.
 Also contains code for evaluating the a piece under a given model.
 
-**VoiceLeading.Learning** - provides an algorithm based on
+VoiceLeading.Learning - provides an algorithm based on
 Persistent Contrastive Divergence to learn model parameters from a corpus.
 
-**VoiceLeading.Inference** - provides algorithms to find the
+VoiceLeading.Inference - provides algorithms to find the
 MAP assignment of a distribution (i.e., compose an "optimal" piece).
 
 ### IO Modules (`src/VoiceLeading/IO/`)
 
-**VoiceLeading.IO.Midi** - load pieces from MIDI files.
+VoiceLeading.IO.Midi - load pieces from MIDI files.
 
-**VoiceLeading.IO.LilyPond** - export pieces to LilyPond and view the PDFs.
+VoiceLeading.IO.LilyPond - export pieces to LilyPond and view the PDFs.
 
-**VoiceLeading.IO.Model** - load and save models to and from JSON.
+VoiceLeading.IO.Model - load and save models to and from JSON.
 
-**VoiceLeading.IO.Plotting** - utilities for plotting values over features,
+VoiceLeading.IO.Plotting - utilities for plotting values over features,
 e.g., model parameters.
 
-**VoiceLeading.IO.HorizontalBars** - a horizontal bars layout for plotting.
+VoiceLeading.IO.HorizontalBars - a horizontal bars layout for plotting.
 
 ## Code Example
 
