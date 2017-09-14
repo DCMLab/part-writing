@@ -327,7 +327,7 @@ pureBin = pure . bin
 
 dist12 :: Int -> Double
 dist12 dist
-  | dist > 12 = fromIntegral $ 2 ^ (dist - 12)
+  | dist > 12 = fromIntegral (dist - 12)
   | otherwise = 0
 
 -- actual features
@@ -340,7 +340,7 @@ fOutOfRange v = do
         | p < l = l - p
         | p > u = p - u
         | otherwise = 0
-  pure $ fromIntegral (distance*distance) -- alternative: function over distance
+  pure $ fromIntegral distance -- alternative: function over distance
 
 fTooFarSA :: Feature ChoralVoice
 fTooFarSA = dist12 <$> aBVI Alto Soprano
@@ -409,7 +409,7 @@ fParOctave :: Voice v => v -> v -> Feature v
 fParOctave v1 v2 = do
   mot <- aMotion v1 v2
   bvi <- aBVI v1 v2
-  pureBin $ mot == Parallel && bvi /= 0 && abs bvi `mod` 12 == 7
+  pureBin $ mot == Parallel && bvi /= 0 && abs bvi `mod` 12 == 0
 
 fConsFifth :: Voice v => v -> v -> Feature v
 fConsFifth v1 v2 = do
@@ -530,8 +530,8 @@ defaultFeaturesNamed =
   nOver2 fConsOctave "fConsOctave" voicePairsU ++
   nOver2 fHiddenFifth "fHiddenFifth" voicePairsU ++
   nOver2 fHiddenOctave "fHiddenOctave" voicePairsU ++
-  nOver fForeign "fForeign" voiceList ++
-  nOver fForeignLT "fForeignLT" voiceList
+  nOver fForeign "fForeign" voiceList ++ -- added
+  nOver fForeignLT "fForeignLT" voiceList ++ -- added
 
 defaultFeatures :: [Feature ChoralVoice]
 defaultFeatures = map nfFeature defaultFeaturesNamed
