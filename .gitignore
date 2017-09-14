@@ -6,3 +6,4 @@ data/*
 *.hp
 *.prof
 *.aux
+*.png

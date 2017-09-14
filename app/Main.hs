@@ -27,8 +27,6 @@ main = do
   -- do something
   ps <- corpusPieces
   plotInfo <- plottingSetup
-  model <- trainPCD ps defaultFeaturesNamed 100 0.1 plottingLogger
-  print model
   --newPiece <- gibbsNotePiece1 piece
   --pure ()
   --viewPiece newPiece -- shows the internal representation of a piece as notes

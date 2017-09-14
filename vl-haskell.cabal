@@ -23,6 +23,7 @@ library
                      , VoiceLeading.IO.Midi
                      , VoiceLeading.IO.LilyPond
                      , VoiceLeading.IO.Plotting
+  other-modules:       VoiceLeading.IO.HorizontalBars
   build-depends:       base >= 4.7 && < 5
                      , containers
                      , vector
@@ -45,7 +46,7 @@ library
                      , lilypond
                      , prettify
                      , terminal-progress-bar
-                     , Chart, Chart-cairo, Chart-gtk
+                     , Chart, Chart-cairo, colour
   default-language:    Haskell2010
 
 executable vl-haskell-exe
