@@ -258,7 +258,7 @@ gibbsNote1 piece = do
 
 expectedFeats :: Voice v => [Piece v] -> [Feature v] -> [Double]
 expectedFeats pieces features = map (/n) counts
-  where n      = fromIntegral $ sum (map (length . pieceEvents) pieces)
+  where n      = fromIntegral $ sum (map pieceLen pieces)
         counts = foldr1 (zipWith (+)) (map ((flip countFeatures) features) pieces)
 
 -- TODO: multiple pieces in chain

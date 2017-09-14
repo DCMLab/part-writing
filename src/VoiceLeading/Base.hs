@@ -47,6 +47,7 @@ module VoiceLeading.Base (
     -- * Pieces
   , Piece(..), Pieces
   , normalizeTies, normalizeTiesScanner
+  , pieceLen
     -- ** Piece Metadata
   , PieceMeta(..), nullPieceMeta
     -- *** Key signatures
@@ -207,7 +208,7 @@ voices :: Voice v => Event v -> [v]
 voices (Event m _) = M.keys m
 
 -- | Returns all 'Pitch'es in the 'Event'.
-pitches :: Voice v => Event v -> [Pitch]
+pitches :: Event v -> [Pitch]
 pitches (Event m _) = M.elems m
 
 -- | Returns a new 'Event' without mappings to 'Rest'.
@@ -305,6 +306,10 @@ normalizeTiesScanner keep e1 (Event m b) = toEv (M.mapWithKey norm m) b
                        then (Pitch p1 True)
                        else (Pitch p2 False)
         norm1 _ p = p
+
+-- | Return the number of events in the piece.
+pieceLen :: Piece v -> Int
+pieceLen = length . pieceEvents
 
 ---------------------
 -- Extended Events --
