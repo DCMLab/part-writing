@@ -65,7 +65,7 @@ data EEvent v = EEvent
   , eBeat  :: Beat
   , eFirst :: Bool
   , eLast  :: Bool
-  }
+  } deriving (Eq)
 
 instance (Show v) => Show (EEvent v) where
   show (EEvent ps b f l) = "E" ++ fst ++ lst ++ "@" ++ show b ++ showMap ps

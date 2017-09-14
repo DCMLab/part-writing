@@ -20,6 +20,7 @@ library
                      , VoiceLeading.Distribution
                      , VoiceLeading.Automaton
                      , VoiceLeading.Learning
+                     , VoiceLeading.Inference
                      , VoiceLeading.Helpers
                      , VoiceLeading.IO.Midi
                      , VoiceLeading.IO.LilyPond
