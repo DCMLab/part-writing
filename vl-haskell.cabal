@@ -16,18 +16,20 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     VoiceLeading.Base
+                     , VoiceLeading.Theory
                      , VoiceLeading.Distribution
                      , VoiceLeading.Automaton
+                     , VoiceLeading.Helpers
                      , VoiceLeading.IO.Midi
                      , VoiceLeading.IO.LilyPond
                      , VoiceLeading.IO.Plotting
-  other-modules:       VoiceLeading.Helpers
   build-depends:       base >= 4.7 && < 5
                      , containers
                      , vector
                      , mtl
                      , primitive
                      , transformers
+                     , lens
                      , memoize
                      , machines
                      , mwc-random

@@ -49,7 +49,7 @@ module VoiceLeading.Base (
     -- ** Piece Metadata
   , PieceMeta(..), nullPieceMeta
     -- *** Key signatures
-  , KeySig(..), mkKeySig, modal, scale, leadingTone
+  , KeySig(..), mkKeySig
     -- * Extended Events and Pieces
   -- , EEvent(..), EPiece, EPieces
   -- , toEPiece, toEPieces
@@ -59,8 +59,9 @@ module VoiceLeading.Base (
 import qualified Data.Map.Strict as M
 import qualified Data.List as L
 import qualified Debug.Trace as DT
-import VoiceLeading.Helpers (showMap, rotate)
-import Data.Function.Memoize (memoize, deriveMemoizable)
+import VoiceLeading.Helpers (showMap)
+
+import Data.Function.Memoize (deriveMemoizable)
 
 -----------
 -- Voice --
@@ -237,26 +238,14 @@ data KeySig = KeySig
 mkKeySig :: Int -> Int -> KeySig
 mkKeySig r m = KeySig (mod r 12) (mod m 7)
 
-modal i m = [0, 2, 4, 5, 7, 9, 11] !! (mod (i+m) 7)
-
 instance Show KeySig where
   show (KeySig r m) = rn ++ '-' : mn
     where rn = ["c", "db", "d", "eb", "e", "f", "f#", "g", "ab", "a", "bb", "b"] !! mod r 12
           mn = ["major", "dorian", "phrygian", "lydian",
                 "mixolydian", "minor", "locrian"] !! mod m 7
 
+
 $(deriveMemoizable ''KeySig)
-
-cMajor :: [Int]
-cMajor = [2,2,1,2,2,2,1]
-
-scale :: KeySig -> [Int]
-scale = memoize s
-  where s (KeySig root mode) = scanl (\a b -> (a+b) `mod` 12) root (init $ rotate mode cMajor)
-
-leadingTone :: KeySig -> Int
-leadingTone = memoize lt
-  where lt (KeySig root _) = (root - 1) `mod` 12
 
 -- | The type 'PieceMeta' holds metadata for a piece.
 --   This metadata is used for improved export.

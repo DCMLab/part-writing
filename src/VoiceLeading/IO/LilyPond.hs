@@ -18,6 +18,7 @@ module VoiceLeading.IO.LilyPond
 import VoiceLeading.Base
 import VoiceLeading.IO.Midi
 import VoiceLeading.Helpers (processList)
+import VoiceLeading.Theory (modal)
 
 import Data.Traversable
 import Data.Functor.Identity (Identity)

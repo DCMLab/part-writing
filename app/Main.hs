@@ -1,6 +1,7 @@
 module Main where
 
 import VoiceLeading.Base as VL
+import VoiceLeading.Theory
 import VoiceLeading.IO.Midi
 import VoiceLeading.IO.LilyPond
 import VoiceLeading.Automaton

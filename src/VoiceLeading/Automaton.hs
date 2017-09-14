@@ -1,15 +1,20 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module VoiceLeading.Automaton where
 
 import VoiceLeading.Base
+import VoiceLeading.Theory
 import VoiceLeading.Helpers
 import VoiceLeading.IO.Midi
 
 import qualified Data.Map.Strict as M
-import Data.List (intercalate)
+import Data.List (intercalate, nub)
+import Data.Maybe (mapMaybe)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
+import qualified Control.Monad.Trans.State as ST
+import qualified Control.Lens as L
 
 -----------------
 -- State Model --
@@ -119,18 +124,6 @@ runOnPiece piece@(Piece meta _) scanner =
 -- aspects / viewpoints --
 --------------------------
 
--- pack state and event into a reader:
-
-type Aspect v a = MaybeT (Reader (AutoEnv v)) a
-
--- | Evaluate a single aspect given an event and a state
-runAspect :: Aspect v a -> AutoEnv v -> Maybe a
-runAspect = runReader . runMaybeT
-
--- | only for testing individual aspects
-runAspectOn :: (Voice v) => Piece v -> Aspect v a -> [Maybe a]
-runAspectOn piece asp = runOnPiece piece (runAspect asp)
-
 -- types
 --------
 
@@ -150,8 +143,44 @@ motion v1p1 v1p2 v2p1 v2p2
   | (v1p2 - v1p1) * (v2p2 - v2p1) > 0 = Similar
   | otherwise                         = Contrary
 
-pitchMidiA :: Aspect v Pitch -> Aspect v Int
-pitchMidiA p = p >>= (liftMaybe . pitchMidi)
+-- memoization
+--------------
+
+data AspectMem v = AspectMem
+                   { _memPitches :: Maybe [Int]
+                   , _memPrevPitchI :: M.Map (v,Int) Int
+                   , _memMotion :: M.Map (v,v) Motion
+                   , _memRoot :: Maybe (Int, Double) }
+  deriving Show
+
+L.makeLenses ''AspectMem
+
+emptyMem = AspectMem Nothing M.empty M.empty Nothing
+
+remember :: L.Lens' (AspectMem v) (Maybe a) -> Aspect v a -> Aspect v a
+remember lens val = do
+  mem <- lift ST.get
+  case L.view lens mem of
+    Just x -> pure x
+    Nothing -> do
+      res <- val
+      lift $ ST.put (L.set lens (Just res) mem)
+      pure res
+
+-- aspect type
+--------------
+
+-- pack state and event into a reader, wrapped by a memoization state and maybe for failure:
+
+type Aspect v = MaybeT (ST.StateT (AspectMem v) (Reader (AutoEnv v)))
+
+-- | Evaluate a single aspect given an event and a state
+runAspect :: AspectMem v -> Aspect v a -> AutoEnv v -> (Maybe a, AspectMem v)
+runAspect mem = runReader . (flip ST.runStateT mem) . runMaybeT
+
+-- | only for testing individual aspects
+runAspectOn :: (Voice v) => Piece v -> Aspect v a -> [Maybe a]
+runAspectOn piece asp = runOnPiece piece (fst . runAspect emptyMem asp)
 
 -- aspects
 ----------
@@ -170,6 +199,9 @@ thisContext = envContext <$> ask
 
 -- event
 
+pitchMidiA :: Aspect v Pitch -> Aspect v Int
+pitchMidiA p = p >>= (liftMaybe . pitchMidi)
+
 aFirst :: Aspect v Bool
 aFirst = eFirst <$> thisEEvent
 
@@ -185,6 +217,15 @@ aPitchI = pitchMidiA . aPitch
 aBeat :: Aspect v Beat
 aBeat = eBeat <$> thisEEvent
 
+aPitches :: Aspect v [Pitch]
+aPitches = nub <$> filter isPitch <$> pitches <$> thisEvent
+
+aPitchesI :: Aspect v [Int]
+aPitchesI = do
+  ps <- aPitches
+  remember memPitches $ pure (mapMaybe pitchMidi ps)
+  
+
 -- state
 
 aPrevPitch :: Ord v => v -> Int -> Aspect v Pitch
@@ -194,7 +235,8 @@ aPrevPitch v i = do
   pure $ maybe Rest id (lGet lst i)
 
 aPrevPitchI :: Ord v => v -> Int -> Aspect v Int
-aPrevPitchI v i = pitchMidiA $ aPrevPitch v i
+aPrevPitchI v i = remember (memPrevPitchI . L.at (v,i)) $
+                  pitchMidiA (aPrevPitch v i)
 
 aLastAcc :: Voice v => v -> Aspect v Pitch
 aLastAcc v = do
@@ -243,13 +285,14 @@ aRest v = isRest <$> aPitch v
 aHolds :: Voice v => v -> Aspect v Bool
 aHolds v = pitchHolds <$> aPitch v
 
-aPitches :: Voice v => Aspect v [Pitch]
-aPitches = pitches <$> thisEvent
-
 aMotion :: Voice v => v -> v -> Aspect v Motion
-aMotion v1 v2 = motion
+aMotion v1 v2 = remember (memMotion . L.at (v1,v2)) $
+                motion
                 <$> aPrevPitchI v1 0 <*> aPitchI v1
                 <*> aPrevPitchI v2 0 <*> aPitchI v2
+
+aRootI :: Aspect v (Int, Double)
+aRootI = remember memRoot $ findRoot <$> aPitchesI
 
 --------------
 -- features --
@@ -302,8 +345,8 @@ fUnison v1 v2 = bin <$> (==0) <$> aBVI v1 v2
 
 fCommonTone :: Voice v => v -> Feature v
 fCommonTone v = do
-  pp  <- aPrevPitch v 0
-  ps  <- aPitches
+  pp  <- aPrevPitchI v 0
+  ps  <- aPitchesI
   wvi <- aWVI v
   pureBin $ pp `elem` ps && wvi /= 0
 
@@ -404,16 +447,18 @@ fForeignLT v = do
 
 -- running features
 
-runFeature :: Feature v -> AutoEnv v -> Double
-runFeature feat = maybe 0 id . runAspect feat
+runFeature :: AspectMem v -> Feature v -> AutoEnv v -> (Double, AspectMem v)
+runFeature mem feat = (L.over L._1 $ maybe 0 id) . runAspect mem feat
+
+listFeature :: [Feature v] -> AutoEnv v -> [Double]
+listFeature feats env = map fst . tail $ scanl run (undefined,emptyMem) feats
+  where run (_,mem) feat = runFeature mem feat env
 
 runFeatureOn :: Voice v => Piece v -> Feature v -> [Double]
-runFeatureOn piece feat = runOnPiece piece (runFeature feat)
+runFeatureOn piece feat = runOnPiece piece (fst . runFeature emptyMem feat)
 
 runFeaturesOn :: Voice v => Piece v -> [Feature v] -> [[Double]]
-runFeaturesOn piece feats = runOnPiece piece listRunner
-  where runners        = map runFeature feats
-        listRunner env = map ($ env) runners
+runFeaturesOn piece feats = runOnPiece piece (listFeature feats)
 
 -- default features
 
