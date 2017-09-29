@@ -358,12 +358,11 @@ fCommonTone v = do
   pp  <- aPrevPitchI v 0
   ps  <- aPitchesI
   wvi <- aWVI v
-  pureBin $ pp `elem` ps && wvi /= 0
+  pureBin $ (pp `mod` 12) `elem` (map (`mod` 12) ps) && wvi /= 0
 
 fNearestTone :: Voice v => v -> Feature v
-fNearestTone v = bin <$> or <$> (aVoices >>= mapM violated)
-  where violated v2 = (<) <$> (abs <$> aCrossInt v v2) <*> (abs <$> aWVI v)
-  -- true if rule is violated
+fNearestTone v = bin <$> and <$> (aVoices >>= mapM ok)
+  where ok v2 = (>=) <$> (abs <$> aCrossInt v v2) <*> (abs <$> aWVI v)
 
 fMelodyStays :: Voice v => v -> Feature v
 fMelodyStays v = bin <$> ((&&) <$> ((==0) <$> aWVI v) <*> (not <$> aHolds v))
@@ -394,10 +393,9 @@ fCrossing v1 v2 = do
 
 fOverlap :: Voice v => v -> v -> Feature v
 fOverlap v1 v2 = do
-  c12 <- aCrossInt v1 v2
-  c21 <- aCrossInt v2 v1
-  pureBin $ v1 < v2 && not (c12 >= 0 && c21 <= 0)
-    || v1 > v2 && not (c12 <= 0 && c21 >= 0)
+  cross <- aCrossInt v1 v2
+  pureBin $ v1 < v2 && cross < 0
+    || v1 > v2 && cross > 0
 
 fParUnison :: Voice v => v -> v -> Feature v
 fParUnison v1 v2 = do
@@ -515,7 +513,7 @@ fSkipThenArpg v = do
   new  <- not <$> aHolds v
   pureBin $ new && ( pwvi == 4 && (wvi == 3 || wvi == 5) ||
                      pwvi == 3 && (wvi == 4 || wvi == 5) ||
-                     pwvi == -5 && (wvi == -3 || wvi == -5) ||
+                     pwvi == -4 && (wvi == -3 || wvi == -5) ||
                      pwvi == -3 && (wvi == -4 || wvi == -5) )
 
 fSkipThenElse v = do
@@ -666,28 +664,29 @@ testFeaturesNamed = [name1 fMelodyStays "fMelodyStays" Soprano,
                      name1 fMelodyStays "fMelodyStays" Alto]
 
 defaultFeaturesNamed =
+  -- basic
   nOver fOutOfRange "fOutOfRange" voiceList ++
   [name fTooFarSA "fTooFarSA" [Soprano, Alto], name fTooFarAT "fTooFarAT" [Alto, Tenor]] ++
-  nOver2 fUnison "fUnison" voicePairsU ++ 
-  nOver fCommonTone "fCommonTone" voiceList ++
-  nOver fNearestTone "fNearestTone" voiceList ++
+  nOver2 fCrossing "fCrossing" voicePairsU ++
+  nOver2 fOverlap "fOverlap" voicePairs ++
+  nOver2 fUnison "fUnison" voicePairsU ++
+  -- chords and doublings
+  [name fChord "fChord" [Soprano, Alto, Tenor, Bass]] ++
+  nOver2 fNoDoubling "fNoDoubling" voicePairsU ++
+  nOver2 fRootDoubling "fRootDoubling" voicePairsU ++
+  nOver2 f5thDoubling "f5thDoubling" voicePairsU ++
+  nOver2 f3rdDoubling "f3rdDoubling" voicePairsU ++
+  nOver2 fTensionDoubling "fTensionDoubling" voicePairsU ++
+  nOver2 fLTDoubling "fLTDoubling" voicePairsU ++
+  nOver2 fForeignDoubling "fForeignDoubling" voicePairsU ++
+  -- melodic motion
   nOver fMelodyHolds "fMelodyHolds" voiceList ++ -- added
   nOver fMelodyStays "fMelodyStays" voiceList ++
   nOver fMelodyStep "fMelodyStep" voiceList ++
   nOver fMelodySkip "fMelodySkip" voiceList ++
   nOver fMelodyLeap "fMelodyLeap" voiceList ++
   nOver fMelodyOverleap "fMelodyOverleap" voiceList ++
-  nOver2 fCrossing "fCrossing" voicePairsU ++
-  nOver2 fOverlap "fOverlap" voicePairsU ++
-  nOver2 fParUnison "fParUnison" voicePairsU ++
-  nOver2 fParFifth "fParFifth" voicePairsU ++
-  nOver2 fParOctave "fParOctave" voicePairsU ++
-  nOver2 fConsFifth "fConsFifth" voicePairsU ++
-  nOver2 fConsOctave "fConsOctave" voicePairsU ++
-  nOver2 fHiddenFifth "fHiddenFifth" voicePairsU ++
-  nOver2 fHiddenOctave "fHiddenOctave" voicePairsU ++
-  nOver fForeign "fForeign" voiceList ++ -- added
-  nOver fForeignLT "fForeignLT" voiceList ++ -- added
+  -- leaps
   nOver fSkipThenStep "fSkipThenStep" voiceList ++
   nOver fSkipThenArpg "fSkipThenArpg" voiceList ++
   nOver fSkipThenElse "fSkipThenElse" voiceList ++
@@ -697,19 +696,26 @@ defaultFeaturesNamed =
   nOver fLLeapThenConStep "fLLeapThenConStep" voiceList ++
   nOver fLLeapThenElse "fLLeapThenElse" voiceList ++
   nOver fDissLeap "fDissLeap" voiceList ++
+  -- chord motion
+  nOver fCommonTone "fCommonTone" voiceList ++
+  nOver fNearestTone "fNearestTone" voiceList ++
+  -- relative motion
   nOver2 fRelStationary "fRelStationary" voicePairsU ++
   nOver2 fRelOblique "fRelOblique" voicePairsU ++
-  nOver2 fRelParallel "fRelParallel" voicePairsU ++
   nOver2 fRelSimilar "fRelSimilar" voicePairsU ++
+  nOver2 fRelParallel "fRelParallel" voicePairsU ++
   nOver2 fRelContrary "fRelContrary" voicePairsU ++
-  nOver2 fNoDoubling "fNoDoubling" voicePairsU ++
-  nOver2 fLTDoubling "fLTDoubling" voicePairsU ++
-  nOver2 fForeignDoubling "fForeignDoubling" voicePairsU ++
-  nOver2 fRootDoubling "fRootDoubling" voicePairsU ++
-  nOver2 f5thDoubling "f5thDoubling" voicePairsU ++
-  nOver2 f3rdDoubling "f3rdDoubling" voicePairsU ++
-  nOver2 fTensionDoubling "fTensionDoubling" voicePairsU ++
-  [name fChord "fChord" [Soprano, Alto, Tenor, Bass]]
+  -- parallels
+  nOver2 fParUnison "fParUnison" voicePairsU ++
+  nOver2 fParFifth "fParFifth" voicePairsU ++
+  nOver2 fParOctave "fParOctave" voicePairsU ++
+  nOver2 fConsFifth "fConsFifth" voicePairsU ++
+  nOver2 fConsOctave "fConsOctave" voicePairsU ++
+  nOver2 fHiddenFifth "fHiddenFifth" voicePairsU ++
+  nOver2 fHiddenOctave "fHiddenOctave" voicePairsU ++
+  -- added
+  nOver fForeign "fForeign" voiceList ++
+  nOver fForeignLT "fForeignLT" voiceList
 
 
 defaultFeatures :: [Feature ChoralVoice]
