@@ -18,17 +18,17 @@ plotOverFeatures fp title names values = do
   toFile opts fp $ do
     layout_title .= title
     layout_top_axis_visibility .= def
-    layout_y_axis . laxis_generate .= autoIndexAxis (map T.unpack names)
+    layout_y_axis . laxis_generate .= autoIndexAxis (reverse $ map T.unpack names)
     layout_y_axis . laxis_style . axis_label_style . font_size .= 8
     plot $ plotHBars <$> barPlot -- bars ["parameter value"] (addIndexes (map (:[]) ps))
       where --mkParamMap = zipWith (\n p -> (n,[p])) (map nfName nfs) ps
-            opts = FileOptions (600,2100) PDF
+            opts = FileOptions (600,2200) PDF
             barPlot = liftEC $ do
               color <- takeColor
               let styles = [(solidFillStyle color, Just (solidLine 0.5 $ opaque black))]
               plot_bars_item_styles .= styles
               plot_bars_titles .= ["parameter value"]
-              plot_bars_values .= (addIndexes (map (:[]) values))
+              plot_bars_values .= (addIndexes (reverse $ map (:[]) values))
               plot_bars_style .= BarsClustered
               plot_bars_spacing .= BarsFixGap 30 5
 
