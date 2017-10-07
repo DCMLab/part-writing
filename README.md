@@ -1,6 +1,6 @@
 # vl-haskell
 
-Code for experimenting with voice leading rules written in [Haskell](https://www.haskell.org/).
+A formal model of voice leading rules implemented in [Haskell](https://www.haskell.org/).
 
 ## Building
 
