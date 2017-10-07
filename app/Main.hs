@@ -12,6 +12,8 @@ import VoiceLeading.IO.Midi
 import VoiceLeading.IO.LilyPond
 import VoiceLeading.IO.Plotting
 import qualified Data.Map as M
+import Data.Aeson.Encode.Pretty (encodePretty)
+import qualified Data.ByteString.Lazy as B
 
 import Control.Monad
 

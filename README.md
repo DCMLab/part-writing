@@ -38,6 +38,7 @@ Both commands need to be invoked via stack:
 
 The `--` is included in order to avoid arguments being passed to `stack exec`.
 For a documentation of each tool, use the `-h` (or `--help`) flag.
+An already trained model that can be used for `vl-compose` can be found in `exampleModel.json`.
 
 The two additional commands `vl-haskell-exe` and `vl-view-model`
 are WIP and should not be used.
