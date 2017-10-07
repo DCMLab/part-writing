@@ -38,7 +38,7 @@ resolver: lts-9.3
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - '.'
-- location: /home/chfin/dateien/src/haskell_libs/lilypond/
+- location: './libs/lilypond/'
   extra-dep: true
 #- location: /home/chfin/dateien/src/haskell_libs/HList/
 #  extra-dep: true
