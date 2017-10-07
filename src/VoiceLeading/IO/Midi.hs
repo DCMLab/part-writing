@@ -132,7 +132,7 @@ corpusPieces = do
 
 testPiece :: IO (Piece ChoralVoice)
 testPiece = do
-  (Piece meta evs) <- loadMidi "01AusmeinesHerz.mid"
+  (Piece meta evs) <- loadMidi "data/testpiece_bwv269.mid"
   return $ Piece (meta { title = "Aus meines Herzens Grunde" }) evs
 
 -- helpers

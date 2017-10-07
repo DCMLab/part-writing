@@ -1,10 +1,9 @@
 *~
 .stack-work/
-data/*
 *.pdf
 *.ps
 *.hp
 *.prof
 *.aux
 *.png
-*.midi
+./*.midi
