@@ -75,7 +75,7 @@ evKernel :: Voice v =>
 evKernel state (orig:evs) ctx model gen evVec = do
   putStrLn $ "evKernel: " ++ show (extract orig)
   putStrLn $ "lookahead: " ++ show lka
-  (prog,thread) <- startProgress exact percentage 40 2560000
+  (prog,thread) <- startProgress exact percentage 40 (Progress 0 2560000)
   q <- qualities prog
   putStrLn "\nsampling from proposal distribution"
   i <- categorical q gen
