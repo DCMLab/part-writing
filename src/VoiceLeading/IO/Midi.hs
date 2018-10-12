@@ -100,6 +100,7 @@ msgToEvent ttb (Event pm pb) msgs = toEv (foldl applyMsg holdAll msgs) beat
         beat = ttb (fst (head msgs))
         nv = length (voiceList :: [v])
         applyMsg m (_,NoteOff c _ _) = if c >= nv then m else M.insert (channelToVoice c) Rest m
+        applyMsg m (_,NoteOn c _ 0) = if c >= nv then m else M.insert (channelToVoice c) Rest m
         applyMsg m (_,NoteOn c p _)  = if c >= nv then m else M.insert (channelToVoice c) (Pitch p False) m
 
 ------------------------
