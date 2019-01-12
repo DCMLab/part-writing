@@ -15,7 +15,7 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: lts-12.6
+resolver: lts-12.26
 #resolver: lts-9.14
 #resolver: lts-6.27
 
@@ -39,8 +39,8 @@ resolver: lts-12.6
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - '.'
-- location: './libs/lilypond/'
-  extra-dep: true
+# - location: './libs/lilypond/'
+#   extra-dep: true
 #- location: /home/chfin/dateien/src/haskell_libs/HList/
 #  extra-dep: true
 # Dependency packages to be pulled from upstream that are not in the resolver
@@ -51,14 +51,17 @@ extra-deps:
 - memoize-0.8.1
 - music-dynamics-literal-1.9.0
 - music-pitch-literal-1.9.0
+- lilypond-1.9.0
 - prettify-1.0
-- terminal-progress-bar-0.2
+- terminal-progress-bar-0.4.0.1
 # - Chart-gtk-1.8.2
 
 #- aeson-1.1.0.0
 #- Plot-ho-matic-0.11.2.0
 #- generic-accessors-0.6.0.1
 #- spatial-math-0.4.0.0
+
+allow-newer: true
 
 # Override default flag values for local packages and extra-deps
 flags: {}

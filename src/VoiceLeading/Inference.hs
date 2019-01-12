@@ -77,7 +77,7 @@ maxEvent :: Voice v =>
          -> IO (EEvent v, State v)
 maxEvent (Model nfeats params) orig evs state ctx evVec = do
   putStrLn $ "maximizing event, lka = " ++ show lka
-  (prog, thread) <- startProgress exact percentage 40 (Progress 0 2560000)
+  prog <- newProgressBar (defStyle {stylePrefix = exact}) 10 (Progress 0 2560000 ())
   vals <- Vec.zipWithM (evalEv prog) evVec (Vec.generate (Vec.length evVec) id)
   let new = evVec Vec.! Vec.maxIndex vals
   pure $! (extendLike' new orig, nextState state new)
