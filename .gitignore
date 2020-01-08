@@ -7,4 +7,5 @@
 *.aux
 *.png
 ./*.midi
-data/*
+*.ipynb_checkpoints
+data/corpus
