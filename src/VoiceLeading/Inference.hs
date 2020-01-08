@@ -10,7 +10,7 @@ import VoiceLeading.Automaton ( EEvent(..), State(..), Context(..)
 import VoiceLeading.Distribution ( Model(..), meanLogPotential
                                  , evalModelUnnormLog, evalPieceUnnormLog)
 import VoiceLeading.Learning ( lookaheadV, lookahead, eventVector, extendLike'
-                             , gibbsStepNote)
+                             , gibbsStepNote, gibbsStepEv)
 
 import System.Random.MWC (createSystemRandom, uniformR, GenIO)
 import System.Random.MWC.Distributions (uniformShuffle)
@@ -19,7 +19,7 @@ import Data.Foldable (foldlM)
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as M
 import Data.List (transpose, (\\))
-import Data.Hashable (Hashable, hash)
+-- import Data.Hashable (Hashable, hash)
 
 import System.ProgressBar
 import Text.Printf (printf)
@@ -168,35 +168,51 @@ bestEstimate estimates model = do
             then (new, newScore)
             else (old, oldScore)
 
-estimateGibbsAnnealing :: (Hashable v, Voice v) => Piece v -> Model v -> [v] -> Int -> (Double -> Double)
-  -> IO (Piece v)
-estimateGibbsAnnealing piece model fixedVoices iterations fPower = do
+estimateGibbsAnnealing :: (Voice v) =>
+                          ([EEvent v] -> Model v -> Double -> GenIO -> IO [EEvent v])
+                       -> Piece v -> Model v -> Int -> (Double -> Double)
+                       -> IO (Piece v)
+estimateGibbsAnnealing step piece model iterations fPower = do
   gen <- createSystemRandom
   let evs     = extendPiece piece
-      meta    = pieceMeta piece
-      ctx     = mkDefaultCtx (keySignature meta)
-      pVec    = Vec.fromList pitchList
-      vVec    = Vec.fromList (voiceList \\ fixedVoices)
-      -- featpar = zip (modelFeatures model) (modelParams model)
-      -- featv v = (v, unzip $ map (\(f,p) -> (nfFeature f, p)) $
-      --               filter (\(f,_) -> v `elem` nfVoices f) featpar)
-      -- feats   = M.fromList $ map featv voiceList
+      meta = pieceMeta piece
       iterd   = fromIntegral iterations - 1
-      -- power n = (targetPower * (fromIntegral n / iterd))
       -- goEstimate :: Int -> [EEvent v] -> IO [EEvent v]
       goEstimate n evs
         | n >= iterations = pure evs
         | otherwise       = do
-            --putStrLn $ "Sampling: n = " ++ show n ++ ", power = " ++ show power
             printf "Sampling: n = %d, power = % 5.2f" n power
             hFlush stdout
-            newEvs <- gibbsStepNote evs ctx model power gen pVec vVec
+            newEvs <- step evs model power gen
             let p = (extractPiece meta newEvs)
-            -- putStrLn $ "piece hash = " ++ show (hash p) ++
-            --   ", meanLogPot = " ++ show (meanLogPotential p model)
             putStrLn $ printf ", meanLogPot = % 7.5f" (meanLogPotential p model)
             goEstimate (n+1) newEvs
             where progress = fromIntegral n / iterd
                   power    = fPower progress
   est <- (goEstimate 0 evs)
   pure $ extractPiece meta est
+
+estimateGibbsNotes :: (Voice v) =>
+                      [v] -> Piece v -> Model v -> Int -> (Double -> Double)
+                   -> IO (Piece v)
+estimateGibbsNotes fixedVoices piece =
+  estimateGibbsAnnealing step piece
+  where ctx = mkDefaultCtx (keySignature $ pieceMeta piece)
+        pVec = Vec.fromList pitchList
+        vVec = Vec.fromList (voiceList \\ fixedVoices)
+        step = gibbsStepNote (const (pVec,())) () vVec ctx
+
+estimateGibbsNotes' :: (Voice v) =>
+                       [v] -> [Vec.Vector Pitch] -> Piece v -> Model v -> Int -> (Double -> Double)
+                    -> IO (Piece v)
+estimateGibbsNotes' fixedVoices groups piece =
+  estimateGibbsAnnealing step piece
+  where ctx = mkDefaultCtx (keySignature $ pieceMeta piece)
+        vVec = Vec.fromList (voiceList \\ fixedVoices)
+        fpVec [] = error "Not enough pitch groups provided"
+        fpVec (g:gs) = (g,gs)
+        step = gibbsStepNote fpVec groups vVec ctx
+
+estimateGibbsEvents kernel kinit piece = estimateGibbsAnnealing step piece
+  where ctx = mkDefaultCtx (keySignature $ pieceMeta piece)
+        step evs m p gen = gibbsStepEv kernel kinit evs ctx m p gen

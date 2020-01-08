@@ -114,10 +114,10 @@ type LogAction = ST.StateT (TimeSpec, TimeSpec) IO ()
 type Logger = TrainingLogEntry -> LogAction
 
 instance Monoid LogAction where
-  mappend = (>>)
   mempty = pure ()
 
-instance Semigroup LogAction
+instance Semigroup LogAction where
+  (<>) = (>>)
 
 --instance Monoid Logger where
 --  mempty = pure ()

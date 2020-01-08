@@ -4,7 +4,7 @@ module Main where
 
 import VoiceLeading.Base
 import VoiceLeading.Automaton (nfName)
-import VoiceLeading.Inference ( estimateGibbsAnnealing, uniformRandomPiece'
+import VoiceLeading.Inference ( estimateGibbsNotes, uniformRandomPiece'
                               , mapEstimateNotewise)
 import VoiceLeading.Distribution ( modelFeatures
                                  , meanLogPotential, meanLogPotentialN
@@ -186,9 +186,8 @@ main = do
             File fp        -> loadMidi fp
 
   -- MAP estimation
-  est' <- estimateGibbsAnnealing piece model
-          (keepVoices options) (iterations options)
-          (rFun $ fPower options)
+  est' <- estimateGibbsNotes (keepVoices options) piece model
+          (iterations options) (rFun $ fPower options)
   est <- mapEstimateNotewise (Just est') model 0 (keepVoices options)
 
   -- plot summary of estimated piece 

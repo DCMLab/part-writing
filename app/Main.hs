@@ -30,7 +30,7 @@ main = do
   plottingLogger "diagram.pdf" model
   -- (est,score) <- bestEstimate (replicateM 10 $ mapEstimateNotewise Nothing model 11 []) model
   piece <- testPiece
-  est <- estimateGibbsAnnealing piece model [Soprano, Bass] 20 (const 5.0)
+  est <- estimateGibbsNotes [Soprano, Bass] piece model 20 (const 5.0)
   putStrLn $ "logpot/event estimate: " ++ show (meanLogPotential est model)
   let avgFEst = meanFeatCounts est model
   plotOverFeatures "estimate_feats.pdf"

@@ -35,23 +35,6 @@ import Data.Hashable (Hashable, hash)
 eventVector :: forall v . Voice v => Vec.Vector (Event v)
 eventVector = Vec.fromList eventList
 
-gibbsStepEv :: Voice v =>
-  [EEvent v] -> Context v -> Model v -> GenIO -> IO [EEvent v]
-gibbsStepEv evs ctx model gen = do
-  -- putStrLn $ "gibbsStep: evs = " ++ show (take 1 (tails evs))
-  newEvs <- evScanGo (return (undefined, firstState)) (init $ tails evs)
-  pure $ tail newEvs
-  where evVec = eventVector
-        sampleEv state evs = evKernel state evs ctx model gen evVec
-        evScanGo acc evss = do
-          -- performGC
-          -- putStrLn $ "evScanner: " ++ show (take 10 evs)
-          (accev, accst) <- acc
-          rest <- (case evss of
-                     []  -> pure []
-                     evs:revss -> evScanGo (sampleEv accst evs) revss)
-          pure $ accev : rest
-
 lookaheadV :: Voice v => [EEvent v] -> v -> Int
 lookaheadV evs v = laGo evs v 1 1
   where laGo [] _ _ num = num
@@ -69,55 +52,79 @@ lookahead (_:evs) = let vl  = voiceList :: [v]
 extendLike' :: Event v -> EEvent v -> EEvent v
 extendLike' (Event m _) (EEvent _ b f l) = EEvent m b f l
 
-evKernel :: Voice v =>
-  State v -> [EEvent v] -> Context v -> Model v ->
-  GenIO -> Vec.Vector (Event v) -> IO (EEvent v, State v)
-evKernel state (orig:evs) ctx model gen evVec = do
-  putStrLn $ "evKernel: " ++ show (extract orig)
-  putStrLn $ "lookahead: " ++ show lka
-  (prog,thread) <- startProgress exact percentage 40 (Progress 0 2560000)
-  q <- qualities prog
-  putStrLn "\nsampling from proposal distribution"
-  i <- categorical q gen
-  putStrLn "done"
+evKernel :: (MonadIO m, Voice v) =>
+  Vec.Vector (Event v) -> () -> State v -> [EEvent v] ->
+  Context v -> Model v -> Double -> GenIO -> m (EEvent v, State v, ())
+evKernel evVec _ state (orig:evs) ctx model power gen = do
+  liftIO $ putStrLn $ "evKernel: " ++ show (extract orig)
+  liftIO $ putStrLn $ "lookahead: " ++ show lka
+  liftIO $ putStrLn $ "options: " ++ show (Vec.length evVec)
+  liftIO $ putStrLn "\nsampling from proposal distribution"
+  i <- liftIO $ categorical qualities gen
+  liftIO $ putStrLn "done"
   let ev = evVec Vec.! i
-  pure $! (extendLike ev orig, nextState state ev)
+  pure $! (extendLike ev orig, nextState state ev, ())
   where
     lka     = lookahead evs
     section = take lka evs
     sectevs = map extract section
     feats   = map nfFeature $ modelFeatures model
-    propose prog ev i = do
-      --propose ev = do
-      when (i `mod` 80000 == 0) (incProgress prog 80000)
-      pure $! evalModelUnnorm counts (modelParams model)
-      --evalModelUnnorm counts (modelParams model)
+    params  = modelParams model
+    propose ev = evalModelUnnorm counts params ** power
         where states = scanl nextState state (ev : init sectevs)
               eev    = extendLike' ev orig
               fs     = runFeaturesOnEEvs (eev:section) states ctx feats
               counts = map sum (transpose fs)
-    qualities prog = Vec.zipWithM (propose prog) evVec (Vec.generate (Vec.length evVec) id)
-    --q = Vec.map propose evVec
+    qualities = Vec.map propose evVec
 
-gibbsEvPiece1 :: Piece ChoralVoice -> IO (Piece ChoralVoice)
-gibbsEvPiece1 p@(Piece meta _) = do
+evKernelEvs :: (MonadIO m, Voice v) =>
+               (s -> EEvent v -> State v -> (Vec.Vector (Event v), s))
+            -> s -> State v -> [EEvent v] -> Context v -> Model v -> Double -> GenIO
+            -> m (EEvent v, State v, s)
+evKernelEvs getEvs kst state evs@(ev:_) ctx model power gen = do
+  (ev', st', _) <- evKernel evVec () state evs ctx model power gen
+  return (ev', st', kst')
+  where (evVec, kst') = getEvs kst ev state
+
+gibbsStepEv :: (Monad m, Voice v) =>
+  (a -> State v -> [EEvent v] -> Context v -> Model v -> Double -> GenIO -> m (EEvent v, State v, a))
+  -> a -> [EEvent v] -> Context v -> Model v -> Double -> GenIO -> m [EEvent v]
+gibbsStepEv kernel kinit evs ctx model power gen = do
+  -- putStrLn $ "gibbsStep: evs = " ++ show (take 1 (tails evs))
+  newEvs <- evScanGo (return (undefined, firstState, kinit)) (init $ tails evs)
+  pure $ tail newEvs
+  where sampleEv state evs kst = kernel kst state evs ctx model power gen
+        evScanGo acc evss = do
+          (accev, accst, kst) <- acc
+          rest <- (case evss of
+                     []  -> pure []
+                     evs:revss -> evScanGo (sampleEv accst evs kst) revss)
+          pure $ accev : rest
+
+gibbsStepEvAll :: (MonadIO m, Voice v) =>
+  [EEvent v] -> Context v -> Model v -> Double -> GenIO -> m [EEvent v]
+gibbsStepEvAll = gibbsStepEv (evKernel eventVector) ()
+
+gibbsEvAllPiece1 :: Piece ChoralVoice -> IO (Piece ChoralVoice)
+gibbsEvAllPiece1 p@(Piece meta _) = do
   gen <- createSystemRandom
   p1 <- normal 0 1 gen
   p2 <- normal 0 1 gen
   let model = Model testFeaturesNamed [p1, p2]
-  newEvs <- gibbsStepEv evs ctx model gen
+  newEvs <- gibbsStepEvAll evs ctx model 1 gen
   return $ Piece meta (map extract newEvs)
   where ctx = mkDefaultCtx (keySignature meta)
         evs = extendPiece p
 
-gibbsEv1 :: Piece ChoralVoice -> IO (EEvent ChoralVoice, State ChoralVoice)
-gibbsEv1 piece = do
+gibbsEvAll1 :: Piece ChoralVoice -> IO (EEvent ChoralVoice, State ChoralVoice)
+gibbsEvAll1 piece = do
   gen <- createSystemRandom
   p1 <- normal 0 1 gen
   p2 <- normal 0 1 gen
   let model = Model testFeaturesNamed [p1, p2]
       evVec = eventVector
-  evKernel firstState evs ctx model gen evVec
+  (ev, st, _) <- evKernel evVec () firstState evs ctx model 1 gen
+  return (ev, st)
   where ctx = mkDefaultCtx (keySignature (pieceMeta piece))
         evs = extendPiece piece
 
@@ -127,32 +134,28 @@ gibbsEv1 piece = do
 pitchVector :: Vec.Vector Pitch
 pitchVector = Vec.fromList pitchList
 
-gibbsStepNote :: forall v . (Hashable v, Voice v) =>
-  [EEvent v] -> Context v -> Model v -> Double -> GenIO ->
-  Vec.Vector Pitch -> Vec.Vector v -> IO [EEvent v]
-gibbsStepNote evs ctx model power gen pVec vVec = do
-  --putStr $ "gibbsStep: oldHash = " ++ show (hash evs)
-  newEvs <- evScanGo (return (undefined, firstState)) (init $ tails evs)
-  rand <- uniform gen :: IO Double
-  --putStr $ ", rand = " ++ show rand
-  --putStrLn $ ", newHash = " ++ show (hash $ tail newEvs)
+gibbsStepNote :: (Voice v) =>
+  (s -> (Vec.Vector Pitch, s)) -> s -> Vec.Vector v -> Context v ->
+  [EEvent v] -> Model v -> Double -> GenIO -> IO [EEvent v]
+gibbsStepNote fpVec fpInit vVec ctx evs model power gen = do
+  newEvs <- evScanGo (return (undefined, firstState)) (init $ tails evs) fpInit
   pure $ tail newEvs
   where featpar = zip (modelFeatures model) (modelParams model)
         featv v = (v, unzip $ map (\(f,p) -> (nfFeature f, p)) $
                       filter (\(f,_) -> v `elem` nfVoices f) featpar)
         feats = M.fromList $ map featv voiceList
-        sampleEv state es = noteKernel state es ctx feats power gen pVec vVec
-        evScanGo acc evss = do
+        sampleEv state es pVec = noteKernel state es ctx feats power gen pVec vVec
+        evScanGo acc evss fpState = do
           (accev, accst) <- acc
+          let (pVec, fpSt') = fpVec fpState
           rest <- (case evss of
                      [] -> pure []
-                     es:revss -> evScanGo (sampleEv accst es) revss)
+                     es:revss -> evScanGo (sampleEv accst es pVec) revss fpSt')
           pure $ accev : rest
 
-gibbsStepNote' :: (Hashable v, Voice v) =>
-  [EEvent v] -> Context v -> Model v -> Double -> GenIO -> IO [EEvent v]
-gibbsStepNote' evs ctx model power gen = do
-  gibbsStepNote evs ctx model power gen pVec vVec
+gibbsStepNote' :: (Voice v) =>
+  Context v -> [EEvent v] -> Model v -> Double -> GenIO -> IO [EEvent v]
+gibbsStepNote' = gibbsStepNote (const (pVec,())) () vVec
   where pVec = pitchVector
         vVec = Vec.fromList voiceList
 
@@ -197,7 +200,7 @@ gibbsNotePiece1 p@(Piece meta _) = do
   params <- replicateM (length feats) (normal 0 10 gen)
   putStrLn $ "params: " ++ show params
   let model = Model feats params
-  newEvs <- gibbsStepNote' evs ctx model 1.0 gen
+  newEvs <- gibbsStepNote' ctx evs model 1.0 gen
   return $ Piece meta (map extract newEvs)
   where ctx = mkDefaultCtx (keySignature meta)
         evs = extendPiece p
@@ -276,7 +279,7 @@ trainPCD pieces features iterations chainSize restartEvery fPower fRate logger =
         logger $ TLogEntry it progress fNames newParams gradient power rate
         pure (newParams, newChain, it+1)
         where model = Model features params
-              sampleZipper pw p c = liftIO $ gibbsStepNote p c model pw gen pVec vVec
+              sampleZipper pw p c = liftIO $ gibbsStepNote (const (pVec,())) () vVec c p model pw gen
   liftIO $ putStrLn $ "chain info: " ++ show chainMetas
   (finalParams, finalChain, _) <-
     (iterateM iterations update (initParams, map extendPiece initChain, 0))
