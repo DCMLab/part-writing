@@ -22,7 +22,6 @@ import System.IO (hFlush, stdout)
 import System.Mem (performGC)
 
 import Debug.Trace as DT
-import System.ProgressBar
 import Data.Hashable (Hashable, hash)
 
 --------------------
@@ -251,7 +250,7 @@ trainPCD :: (Hashable v, Voice v, MonadIO m)
          -> m (Model v, [Piece v])
 trainPCD pieces features iterations chainSize restartEvery fPower fRate logger = do
   gen <- liftIO createSystemRandom
-  liftIO $ putStr "counting features of corups... "
+  liftIO $ putStr "counting features of corpus... "
   liftIO $ hFlush stdout
   let feats   = map nfFeature features
       fNames  = map nfName features
