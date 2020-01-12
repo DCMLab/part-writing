@@ -26,7 +26,8 @@ A piece is represented as a list of voice leading events and a record of metadat
 
 For details refer to the following sections.
 -}
-module VoiceLeading.Base (
+module VoiceLeading.Base
+  (
     -- * Voices
     Voice(..)
   , ChoralVoice(..)
@@ -35,36 +36,53 @@ module VoiceLeading.Base (
   , Pitch(..)
   , pitchList
     -- ** Pitch Functions
-  , isRest, isPitch, pitchHolds, pitchMidi
-  , holdPitch, unholdPitch
+  , isRest
+  , isPitch
+  , pitchHolds
+  , pitchMidi
+  , holdPitch
+  , unholdPitch
     -- * Events
   , Event(..)
   , Beat
-  , allEvents, eventList
+  , allEvents
+  , eventList
     -- ** Event Functions
-  , emptyEvent, isEmptyEvent, toEv
-  , evGet, evGetMaybe, voices, pitches
-  , removeRests, addRests, rests
+  , emptyEvent
+  , isEmptyEvent
+  , toEv
+  , evGet
+  , evGetMaybe
+  , voices
+  , pitches
+  , removeRests
+  , addRests
+  , rests
     -- * Pieces
-  , Piece(..), Pieces
-  , normalizeTies, normalizeTiesScanner
+  , Piece(..)
+  , Pieces
+  , normalizeTies
+  , normalizeTiesScanner
   , pieceLen
     -- ** Piece Metadata
-  , PieceMeta(..), nullPieceMeta
+  , PieceMeta(..)
+  , nullPieceMeta
     -- *** Key signatures
-  , KeySig(..), mkKeySig
-  ) where
+  , KeySig(..)
+  , mkKeySig
+  )
+where
 
-import qualified Data.Map.Strict as M
-import qualified Data.List as L
-import qualified Debug.Trace as DT
-import VoiceLeading.Helpers (showMap)
+import qualified Data.Map.Strict               as M
+import qualified Data.List                     as L
+import qualified Debug.Trace                   as DT
+import           VoiceLeading.Helpers           ( showMap )
 
-import Data.Function.Memoize (deriveMemoizable)
+import           Data.Function.Memoize          ( deriveMemoizable )
 
-import GHC.Generics (Generic)
-import Data.Hashable
-import Control.DeepSeq
+import           GHC.Generics                   ( Generic )
+import           Data.Hashable
+import           Control.DeepSeq
 
 -----------
 -- Voice --
@@ -85,10 +103,10 @@ data ChoralVoice = Bass | Tenor | Alto | Soprano
 
 instance Voice ChoralVoice where
   voiceList = [Bass, Tenor, Alto, Soprano]
-  defaultRange Bass    = (38,62)
-  defaultRange Tenor   = (48,69)
-  defaultRange Alto    = (55,74)
-  defaultRange Soprano = (59,81)
+  defaultRange Bass    = (38, 62)
+  defaultRange Tenor   = (48, 69)
+  defaultRange Alto    = (55, 74)
+  defaultRange Soprano = (59, 81)
 
 instance Hashable ChoralVoice
 
@@ -124,14 +142,14 @@ showPitch i = (pitchNames !! mod i 12) ++ show (div i 12 - 1)
 instance Show Pitch where
   show Rest            = "R"
   show (Pitch i False) = showPitch i
-  show (Pitch i True)  = '~' : showPitch i
+  show (Pitch i True ) = '~' : showPitch i
 
 instance Hashable Pitch
 instance NFData Pitch
 
 -- | A list of all 'Pitch'es.
 pitchList :: [Pitch]
-pitchList = Rest : map (\p -> Pitch p False) [41..79]
+pitchList = Rest : map (\p -> Pitch p False) [41 .. 79]
 
 -- | Return 'True' if the given 'Pitch' is 'Rest'
 isRest :: Pitch -> Bool
@@ -155,12 +173,12 @@ pitchMidi (Pitch i _) = Just i
 
 -- | Return a copy of the given 'Pitch' that holds over.
 holdPitch :: Pitch -> Pitch
-holdPitch Rest = Rest
+holdPitch Rest        = Rest
 holdPitch (Pitch i _) = Pitch i True
 
 -- | Return a copy of the given 'Pitch' that does not hold over.
 unholdPitch :: Pitch -> Pitch
-unholdPitch Rest = Rest
+unholdPitch Rest        = Rest
 unholdPitch (Pitch i _) = Pitch i False
 
 -----------
@@ -186,8 +204,7 @@ data Event v = Event { evMap  :: (M.Map v Pitch)
   deriving (Eq, Generic)
 
 instance Hashable v => Hashable (Event v) where
-  hashWithSalt s (Event m b) =
-    s `hashWithSalt` b `hashWithSalt` lst
+  hashWithSalt s (Event m b) = s `hashWithSalt` b `hashWithSalt` lst
     where lst = M.toAscList m
 
 instance (NFData v) => NFData (Event v)
@@ -214,12 +231,12 @@ evGetMaybe e v = M.lookup v (evMap e)
 --   Returns 'Rest' if the voice is not found in the event.
 evGet :: Voice v => Event v -> v -> Pitch
 evGet e v = case evGetMaybe e v of
-              (Just p) -> p
-              Nothing  -> Rest
+  (Just p) -> p
+  Nothing  -> Rest
 {-# INLINE evGet #-}
 
 instance Voice v => Show (Event v) where
-  show (Event m b) = "Event@" ++ show b  ++ showMap m
+  show (Event m b) = "Event@" ++ show b ++ showMap m
 
 -- | Returns all 'Voice's in the 'Event'.
 voices :: Voice v => Event v -> [v]
@@ -237,9 +254,7 @@ removeRests (Event m b) = toEv (M.filter isPitch m) b
 --   Missing voices are mapped 'Rest'.
 addRests :: Voice v => Event v -> Event v
 addRests (Event m b) = toEv (foldl addRest m voiceList) b
-  where addRest e v = if M.member v e
-                      then e
-                      else M.insert v Rest e
+  where addRest e v = if M.member v e then e else M.insert v Rest e
 
 -- | Returns the number of 'Rest's in the 'Event'. 
 rests :: Voice v => Event v -> Int
@@ -249,8 +264,9 @@ rests e = M.size (evMap e) - M.size (evMap (removeRests e))
 --   for given lists of 'Voice's and 'Pitch'es.
 allEvents :: Voice v => [v] -> [Pitch] -> [Event v]
 allEvents voices pitches = map makeEvent pitchProd
-  where pitchProd = sequence $ replicate (length voices) pitches
-        makeEvent = (flip toEv) 0 . M.fromList . zip voices
+ where
+  pitchProd = sequence $ replicate (length voices) pitches
+  makeEvent = (flip toEv) 0 . M.fromList . zip voices
 
 -- | A list of all possible 'Event's
 --   derived from 'voiceList' and 'pitchList'.
@@ -276,9 +292,20 @@ mkKeySig r m = KeySig (mod r 12) (mod m 7)
 
 instance Show KeySig where
   show (KeySig r m) = rn ++ '-' : mn
-    where rn = ["c", "db", "d", "eb", "e", "f", "f#", "g", "ab", "a", "bb", "b"] !! mod r 12
-          mn = ["major", "dorian", "phrygian", "lydian",
-                "mixolydian", "minor", "locrian"] !! mod m 7
+   where
+    rn =
+      ["c", "db", "d", "eb", "e", "f", "f#", "g", "ab", "a", "bb", "b"]
+        !! mod r 12
+    mn =
+      [ "major"
+        , "dorian"
+        , "phrygian"
+        , "lydian"
+        , "mixolydian"
+        , "minor"
+        , "locrian"
+        ]
+        !! mod m 7
 
 instance Hashable KeySig
 instance NFData KeySig
@@ -298,7 +325,7 @@ instance Hashable PieceMeta
 instance NFData PieceMeta
 
 -- | The "default" metadata, used if nothing else is known.
-nullPieceMeta = PieceMeta "untitled" (4,4) (KeySig 0 0)
+nullPieceMeta = PieceMeta "untitled" (4, 4) (KeySig 0 0)
 
 -- | The type 'Piece' wraps '[Event]' and piece metadata.
 --   Like 'Event' this is parameterized on the voice type.
@@ -321,17 +348,17 @@ type Pieces v = [Piece v]
 -- If @keepTies@ is 'True', then all held pitches are adapted from left to right.
 -- If @keepTies@ is 'False', then all ties between different pitch values are removed.
 normalizeTies :: Voice v => Piece v -> Bool -> Piece v
-normalizeTies (Piece meta evs) keep = Piece meta (scanl1 (normalizeTiesScanner keep) evs)
+normalizeTies (Piece meta evs) keep =
+  Piece meta (scanl1 (normalizeTiesScanner keep) evs)
 
 -- | Scanner ('scanl1') function for normalizing ties (cf. 'normalizeTies')
 normalizeTiesScanner :: Voice v => Bool -> Event v -> Event v -> Event v
 normalizeTiesScanner keep e1 (Event m b) = toEv (M.mapWithKey norm m) b
-  where norm v p = norm1 (evGet e1 v) p
-        norm1 (Pitch p1 _) (Pitch p2 True)
-          | p1 /= p2 = if keep
-                       then (Pitch p1 True)
-                       else (Pitch p2 False)
-        norm1 _ p = p
+ where
+  norm v p = norm1 (evGet e1 v) p
+  norm1 (Pitch p1 _) (Pitch p2 True) | p1 /= p2 =
+    if keep then (Pitch p1 True) else (Pitch p2 False)
+  norm1 _ p = p
 
 -- | Return the number of events in the piece.
 pieceLen :: Piece v -> Int

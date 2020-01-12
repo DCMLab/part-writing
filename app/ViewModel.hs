@@ -1,16 +1,16 @@
 module Main where
 
-import VoiceLeading.Base
-import VoiceLeading.Distribution (Model(..))
+import           VoiceLeading.Base
+import           VoiceLeading.Distribution      ( Model(..) )
 
-import VoiceLeading.IO.Model (loadModel)
-import VoiceLeading.IO.Plotting (plottingLogger)
-import VoiceLeading.IO.LilyPond (pieceToLy)
-import VoiceLeading.IO.Midi (loadMidi)
+import           VoiceLeading.IO.Model          ( loadModel )
+import           VoiceLeading.IO.Plotting       ( plottingLogger )
+import           VoiceLeading.IO.LilyPond       ( pieceToLy )
+import           VoiceLeading.IO.Midi           ( loadMidi )
 
-import System.FilePath (takeExtension)
-import Options.Applicative
-import Data.Semigroup ((<>))
+import           System.FilePath                ( takeExtension )
+import           Options.Applicative
+import           Data.Semigroup                 ( (<>) )
 
 data Opts = Opts
           { inputFp  :: FilePath
@@ -20,27 +20,27 @@ data Opts = Opts
           , quiet   :: Bool }
 
 opts :: Parser Opts
-opts = Opts
-  <$> strArgument
-  ( help "input filename"
-    <> metavar "INPUT" )
-  <*> strArgument
-  ( help "output filename"
-    <> showDefault
-    <> value ""
-    <> metavar "OUTPUT" )
-  <*> switch (long "stdout" <> short 's'
-               <> help "write output to stdout (implies -q, only for lilypond)")
-  <*> switch (long "tmp" <> short 't' <> help "write to temporary file")
-  <*> switch (long "quiet" <> short 'q' <> help "don't view the output file")
+opts =
+  Opts
+    <$> strArgument (help "input filename" <> metavar "INPUT")
+    <*> strArgument
+          (help "output filename" <> showDefault <> value "" <> metavar "OUTPUT"
+          )
+    <*> switch
+          (long "stdout" <> short 's' <> help
+            "write output to stdout (implies -q, only for lilypond)"
+          )
+    <*> switch (long "tmp" <> short 't' <> help "write to temporary file")
+    <*> switch (long "quiet" <> short 'q' <> help "don't view the output file")
 
-optsInfo = info (opts <**> helper)
+optsInfo = info
+  (opts <**> helper)
   (fullDesc <> progDesc "Convert and view a piece/model/MIDI file.")
 
 main :: IO ()
 main = do
   options <- execParser optsInfo
-  doc <- loadDoc $ inputFp options
+  doc     <- loadDoc $ inputFp options
   pure ()
 
 
@@ -51,7 +51,7 @@ te = takeExtension
 
 loadDoc :: FilePath -> IO (Document ChoralVoice)
 loadDoc fp | te fp == ".midi" = DocPiece <$> loadMidi fp
-            | te fp == ".json" = DocModel <$> loadModel fp
+           | te fp == ".json" = DocModel <$> loadModel fp
 
 exportDoc :: Voice v => FilePath -> Document v -> IO ()
 exportDoc fp (DocPiece p) = writeFile fp $ pieceToLy p
