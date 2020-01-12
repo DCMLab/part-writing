@@ -51,7 +51,7 @@ library
                      , lilypond
                      , prettify
                      , terminal-progress-bar
-                     , Chart, Chart-cairo, colour
+                     , Chart, Chart-cairo, colour, palette
   default-language:    Haskell2010
 
 executable vl-haskell-exe
