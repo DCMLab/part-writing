@@ -14,6 +14,11 @@ import VoiceLeading.IO.Plotting
 import qualified Data.Map as M
 
 import Control.Monad
+import Data.Default
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
+import Data.Function.Memoize
+import Data.Maybe (catMaybes)
 
 -- pitchify i = Pitch i False
 -- joinVoices a b = toEv $ M.fromList [(CF, a), (LowCP, b)]
@@ -23,26 +28,27 @@ import Control.Monad
 
 -- cp1 = zipWith joinVoices cantus fstCP
 
-main :: IO ()
-main = do
+main1 :: IO ()
+main1 = do
   model <- loadModel "model.json"
-  let mfNames = map nfName (modelFeatures model)
+  let mfNames = nfName <$> modelFeatures model
   plottingLogger "diagram.pdf" model
   -- (est,score) <- bestEstimate (replicateM 10 $ mapEstimateNotewise Nothing model 11 []) model
   piece <- testPiece
-  est <- estimateGibbsNotes [Soprano, Bass] piece model 20 (const 5.0)
-  putStrLn $ "logpot/event estimate: " ++ show (meanLogPotential est model)
-  let avgFEst = meanFeatCounts est model
+  let aopts = def
+  est <- estimateGibbsNotes aopts [Soprano, Bass] piece model 20 (const 5.0)
+  putStrLn $ "logpot/event estimate: " ++ show (meanLogPotential aopts est model)
+  let avgFEst = meanFeatCounts aopts est model
   plotOverFeatures "estimate_feats.pdf"
     "Mean Feature Values (MAP Estimate)"
     mfNames avgFEst
   ps <- corpusPieces
-  putStrLn $ "logpot/event corpus: " ++ show (meanLogPotentialN ps model)
-  let avgFCorp = meanFeatCountsN ps model
+  putStrLn $ "logpot/event corpus: " ++ show (meanLogPotentialN aopts ps model)
+  let avgFCorp = meanFeatCountsN aopts ps model
   plotOverFeatures "corpus_feats.pdf"
     "Mean Feature Values (Corpus)"
     mfNames avgFCorp
-  let avgFDiff = map log $ zipWith (/) avgFEst avgFCorp
+  let avgFDiff = VU.map log $ VU.zipWith (/) avgFEst avgFCorp
   printOverFeatures "relative_feats.pdf"
     "Mean Feature Values (Estimate/Corpus)"
     mfNames avgFDiff
@@ -50,3 +56,28 @@ main = do
     "Mean Feature Values (Estimate/Corpus)"
     mfNames avgFDiff
   viewPieceTmp est
+
+main2 = do
+  pieces <- corpusPieces
+  let splitn = round $ fromIntegral (length pieces) * 0.7
+      (train, test) = splitAt splitn pieces
+      feats = V.fromList $ nfFeature <$> defaultFeaturesNamed
+  putStrLn $ show $ expectedFeats def train feats
+  putStrLn $ show $ expectedFeats def test feats
+  
+main = do
+  (Just pfs) <- loadProfiles "data/jsbach_chorals_harmony/profiles.json"
+  let harm = traceMemoize $ matchChordProfiles $ vectorizeProfiles pfs
+      pitches = (Just <$> [0..11]) <> [Nothing]
+  putStrLn $ show $ sum $ do
+    p1 <- pitches
+    p2 <- pitches
+    p3 <- pitches
+    p4 <- pitches
+    pure $ snd $ harm $ catMaybes [p1,p2,p3,p4]    
+  putStrLn $ show $ sum $ do
+    p1 <- reverse pitches
+    p2 <- reverse pitches
+    p3 <- reverse pitches
+    p4 <- reverse pitches
+    pure $ snd $ harm $ catMaybes [p1,p2,p3,p4]

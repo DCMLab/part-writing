@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 
 module VoiceLeading.Automaton where
 
@@ -11,7 +12,7 @@ import VoiceLeading.Helpers
 import VoiceLeading.IO.Midi
 
 import qualified Data.Map.Strict as M
-import Data.List (intercalate, nub)
+import Data.List (intercalate, nub, scanl')
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe)
 import Data.Semigroup ((<>))
@@ -20,14 +21,18 @@ import Control.Monad.Trans.Maybe
 import qualified Control.Monad.Trans.State as ST
 import qualified Control.Lens as L
 import Data.Hashable
+import Data.Default
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
+-- import qualified Data.Function.Memoize as Mem
 
 -----------------
 -- State Model --
 -----------------
 
 data State v = State
-  { sPrevPitch :: M.Map v [Pitch]
-  , cpLastAcc :: Maybe (Event v)
+  { sPrevPitch :: !(M.Map v [Pitch])
+  , cpLastAcc :: !(Maybe (Event v))
   }
 
 instance Show v => Show (State v) where
@@ -43,7 +48,7 @@ firstState = let vs = voiceList :: [v] in
                , cpLastAcc = Nothing }
 
 nextState :: forall v . Voice v => State v -> Event v -> State v
-nextState last ev = State
+nextState !last !ev = State
   { sPrevPitch = M.fromList $ map pushVoice vs
   , cpLastAcc = Nothing -- this is not clear so far
   }
@@ -54,17 +59,17 @@ nextState last ev = State
         push lst p              = take memoryLength $ p : lst
 
 pieceStates :: Voice v => Piece v -> [State v]
-pieceStates (Piece _ evs) = scanl nextState firstState evs
+pieceStates (Piece _ evs) = scanl' nextState firstState evs
 
 ---------------------
 -- extended events --
 ---------------------
 
 data EEvent v = EEvent
-  { ePitch :: M.Map v Pitch
-  , eBeat  :: Beat
-  , eFirst :: Bool
-  , eLast  :: Bool
+  { ePitch :: !(M.Map v Pitch)
+  , eBeat  :: !Beat
+  , eFirst :: !Bool
+  , eLast  :: !Bool
   } deriving (Eq)
 
 instance (Show v) => Show (EEvent v) where
@@ -96,39 +101,67 @@ extract ev = Event (ePitch ev) (eBeat ev)
 extractPiece :: PieceMeta -> [EEvent v] -> Piece v
 extractPiece meta evs = Piece meta (map extract evs)
 
+-- -- | @evGetMaybe e v@ returns @'Just' p@ if the 'Event' @e@ maps 'Voice' @v@
+-- --   to 'Pitch' @p@, 'Nothing' otherwise.
+-- eevGetMaybe :: Voice v => Event v -> v -> Maybe Pitch
+-- eevGetMaybe e v = M.lookup v $ ePitch e
+-- {-# INLINE eevGetMaybe #-}
+
+-- | Returns the 'Pitch' belonging to a 'Voice' in an 'Event'.
+--   Returns 'Rest' if the voice is not found in the event.
+eevGet :: Voice v => EEvent v -> v -> Pitch
+eevGet e v = M.findWithDefault Rest v $ ePitch e
+{-# INLINE eevGet #-}
+
+eevPitches :: EEvent v -> [Pitch]
+eevPitches = M.elems . ePitch
+
 -------------------------------
 -- global / external context --
 -------------------------------
 
 data Context v = Context
-  { cVoiceRange :: M.Map v (Int, Int)
-  , cLeadingTone :: Int
-  , cKey :: KeySig
+  { cVoiceRange :: !(M.Map v (Int, Int))
+  , cLeadingTone :: !Int
+  , cKey :: !KeySig
+  , cHarmEstimator :: !([Int] -> (Int, Double))
   }
 
-mkDefaultCtx :: Voice v => KeySig -> Context v
-mkDefaultCtx k@(KeySig r _) = Context
-  { cVoiceRange  = M.fromList $ map (\v -> (v, defaultRange v)) voiceList
-  , cLeadingTone = mod (r-1) 12
-  , cKey         = k
+mkDefaultCtx :: Voice v => AutoOpts v -> KeySig -> Context v
+mkDefaultCtx (AutoOpts range est) k@(KeySig r _) = Context
+  { cVoiceRange    = range
+  , cLeadingTone   = mod (r-1) 12
+  , cKey           = k
+  , cHarmEstimator = est
   }
+
+data AutoOpts v = AutoOpts
+  { oVoiceRange :: !(M.Map v (Int, Int))
+  , oHarmEstimator :: !([Int] -> (Int, Double))
+  }
+
+instance (Voice v) => Default (AutoOpts v) where
+  def = AutoOpts
+    { oVoiceRange = M.fromList $ map (\v -> (v, defaultRange v)) voiceList
+    , oHarmEstimator = findHarm
+    }
 
 ---------------------------
 -- running the automaton --
 ---------------------------
 
 data AutoEnv v = AutoEnv
-  { envEvent :: EEvent v
-  , envState :: State v
-  , envContext :: Context v
+  { envEEvent :: !(EEvent v)
+  , envState :: !(State v)
+  , envContext :: !(Context v)
   }
 
-runOnPiece :: (Voice v) => Piece v -> (AutoEnv v -> a) -> [a]
-runOnPiece piece@(Piece meta _) scanner =
-  map scanner (zipWith3 AutoEnv evs sts (repeat ctx))
-  where evs = extendPiece piece
+runOnPiece :: (Voice v) => AutoOpts v -> Piece v -> (AutoEnv v -> a) -> [a]
+runOnPiece opts piece@(Piece meta _) scanner =
+  map scanner (zipWith3 AutoEnv eevs sts (repeat ctx))
+  where eevs = extendPiece piece
         sts = pieceStates piece
-        ctx = mkDefaultCtx (keySignature meta)
+        ctx = mkDefaultCtx opts (keySignature meta)
 
 --------------------------
 -- aspects / viewpoints --
@@ -157,10 +190,10 @@ motion v1p1 v1p2 v2p1 v2p2
 --------------
 
 data AspectMem v = AspectMem
-                   { _memPitches :: Maybe [Int]
-                   , _memPrevPitchI :: M.Map (v,Int) Int
-                   , _memMotion :: M.Map (v,v) Motion
-                   , _memRoot :: Maybe (Int, Double) }
+                   { _memPitches :: !(Maybe [Int])
+                   , _memPrevPitchI :: !(M.Map (v,Int) Int)
+                   , _memMotion :: !(M.Map (v,v) Motion)
+                   , _memHarm :: !(Maybe (Int, Double)) }
   deriving Show
 
 L.makeLenses ''AspectMem
@@ -186,20 +219,20 @@ type Aspect v = MaybeT (ST.StateT (AspectMem v) (Reader (AutoEnv v)))
 
 -- | Evaluate a single aspect given an event and a state
 runAspect :: AspectMem v -> Aspect v a -> AutoEnv v -> (Maybe a, AspectMem v)
-runAspect mem = runReader . (flip ST.runStateT mem) . runMaybeT
+runAspect !mem = runReader . (flip ST.runStateT mem) . runMaybeT
 
 -- | only for testing individual aspects
-runAspectOn :: (Voice v) => Piece v -> Aspect v a -> [Maybe a]
-runAspectOn piece asp = runOnPiece piece (fst . runAspect emptyMem asp)
+runAspectOn :: (Voice v) => AutoOpts v -> Piece v -> Aspect v a -> [Maybe a]
+runAspectOn opts piece asp = runOnPiece opts piece (fst . runAspect emptyMem asp)
 
 -- aspects
 ----------
 
 thisEEvent :: Aspect v (EEvent v)
-thisEEvent = envEvent <$> ask
+thisEEvent = envEEvent <$> ask
 
-thisEvent :: Aspect v (Event v)
-thisEvent = extract <$> thisEEvent
+-- thisEvent :: Aspect v (Event v)
+-- thisEvent = envEvent <$> ask
 
 thisState :: Aspect v (State v)
 thisState = envState <$> ask
@@ -219,7 +252,7 @@ aLast :: Aspect v Bool
 aLast = eLast <$> thisEEvent
 
 aPitch :: Voice v => v -> Aspect v Pitch
-aPitch v = evGet <$> thisEvent <*> pure v
+aPitch v = eevGet <$> thisEEvent <*> pure v
 
 aPitchI :: Voice v => v -> Aspect v Int
 aPitchI = pitchMidiA . aPitch
@@ -228,7 +261,7 @@ aBeat :: Aspect v Beat
 aBeat = eBeat <$> thisEEvent
 
 aPitches :: Aspect v [Pitch]
-aPitches = nub <$> filter isPitch <$> pitches <$> thisEvent
+aPitches = filter isPitch <$> eevPitches <$> thisEEvent
 
 aPitchesI :: Aspect v [Int]
 aPitchesI = do
@@ -301,9 +334,12 @@ aMotion v1 v2 = remember (memMotion . L.at (v1,v2)) $
                 <$> aPrevPitchI v1 0 <*> aPitchI v1
                 <*> aPrevPitchI v2 0 <*> aPitchI v2
 
-aRootI :: Aspect v (Int, Double)
-aRootI = remember memRoot $ findRoot <$> aPitchesI
-
+-- | Returns a pair of the estimated root pitch and the "chordness" of the current chord.
+aHarmony :: Aspect v (Int, Double)
+aHarmony = do
+  estimateHarm <- cHarmEstimator <$> thisContext
+  remember memHarm $ estimateHarm . fmap (`mod` 12) <$> aPitchesI
+  
 --------------
 -- features --
 --------------
@@ -467,21 +503,21 @@ fForeignDoubling v1 v2 = do
 fRootDoubling :: Voice v => v -> v -> Feature v
 fRootDoubling v1 v2 = do
   bvi  <- aBVI v1 v2
-  (root,_) <- aRootI
+  (root,_) <- aHarmony
   p    <- aPitchI v1
   pureBin $ (bvi `mod` 12 == 0) && (p `mod` 12 == root)
 
 f5thDoubling :: Voice v => v -> v -> Feature v
 f5thDoubling v1 v2 = do
   bvi  <- aBVI v1 v2
-  (root,_) <- aRootI
+  (root,_) <- aHarmony
   p    <- aPitchI v1
   pureBin $ (bvi `mod` 12 == 0) && ((p - root) `mod` 12 == 7)
 
 f3rdDoubling :: Voice v => v -> v -> Feature v
 f3rdDoubling v1 v2 = do
   bvi  <- aBVI v1 v2
-  (root,_) <- aRootI
+  (root,_) <- aHarmony
   p    <- aPitchI v1
   let relp = (p - root) `mod` 12
   pureBin $ (bvi `mod` 12 == 0) && (relp == 3 || relp == 4)
@@ -489,13 +525,13 @@ f3rdDoubling v1 v2 = do
 fTensionDoubling :: Voice v => v -> v -> Feature v
 fTensionDoubling v1 v2 = do
   bvi  <- aBVI v1 v2
-  (root,_) <- aRootI
+  (root,_) <- aHarmony
   p    <- aPitchI v1
   let relp = (p - root) `mod` 12
   pureBin $ (bvi `mod` 12 == 0) && not (relp `elem` [0,3,4,7])
 
 fChord :: Feature v
-fChord = snd <$> aRootI
+fChord = snd <$> aHarmony
 
 -- TODO doublingPref, chords, position,
 
@@ -606,20 +642,22 @@ fMelodyHolds v = do
 runFeature :: AspectMem v -> Feature v -> AutoEnv v -> (Double, AspectMem v)
 runFeature mem feat = (L.over L._1 $ maybe 0 id) . runAspect mem feat
 
-listFeature :: [Feature v] -> AutoEnv v -> [Double]
-listFeature feats env = map fst . tail $ scanl run (undefined,emptyMem) feats
+listFeature :: V.Vector (Feature v) -> AutoEnv v -> VU.Vector Double
+listFeature feats env = VU.convert $ V.map fst $ V.postscanl' run (undefined, emptyMem) feats
   where run (_,mem) feat = runFeature mem feat env
 
-runFeatureOn :: Voice v => Piece v -> Feature v -> [Double]
-runFeatureOn piece feat = runOnPiece piece (fst . runFeature emptyMem feat)
+runFeatureOn :: Voice v => AutoOpts v -> Piece v -> Feature v -> [Double]
+runFeatureOn opts piece feat = runOnPiece opts piece (fst . runFeature emptyMem feat)
 
-runFeaturesOn :: Voice v => Piece v -> [Feature v] -> [[Double]]
-runFeaturesOn piece feats = runOnPiece piece (listFeature feats)
+runFeaturesOn :: Voice v => AutoOpts v -> Piece v -> V.Vector (Feature v) -> [VU.Vector Double]
+runFeaturesOn opts piece feats = runOnPiece opts piece (listFeature feats)
 
 runOnEEvs :: Voice v => [EEvent v] -> [State v] -> Context v -> (AutoEnv v -> a) -> [a]
-runOnEEvs evs sts ctx scanner = map scanner (zipWith3 AutoEnv evs sts (repeat ctx))
+runOnEEvs evs sts ctx scanner = map scanner (zipWith (\eev st -> AutoEnv eev st ctx) evs sts)
 
-runFeaturesOnEEvs :: Voice v => [EEvent v] -> [State v] -> Context v -> [Feature v] -> [[Double]]
+runFeaturesOnEEvs :: Voice v =>
+                     [EEvent v] -> [State v] -> Context v -> V.Vector (Feature v) ->
+                     [VU.Vector Double]
 runFeaturesOnEEvs evs sts ctx feats = runOnEEvs evs sts ctx (listFeature feats)
 
 -- default features

@@ -3,7 +3,7 @@
 module Main where
 
 import VoiceLeading.Base
-import VoiceLeading.Automaton (nfName)
+import VoiceLeading.Automaton (nfName, AutoOpts(..))
 import VoiceLeading.Inference ( estimateGibbsNotes, uniformRandomPiece'
                               , mapEstimateNotewise)
 import VoiceLeading.Distribution ( modelFeatures
@@ -21,6 +21,9 @@ import Data.Semigroup ((<>))
 import Data.Yaml as Yaml
 import qualified Data.Text as T
 import Control.Monad (unless, when)
+import Data.Default
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 
 data PieceStart = TestPiece
                 | NewPiece Int
@@ -174,7 +177,7 @@ main = do
 
   -- load model and plot its parameters
   model <- loadModel $ modelFp options
-  let mfNames = map nfName (modelFeatures model)
+  let mfNames = nfName <$> modelFeatures model
   unless (q || null (diagramFp options)) $
     plottingLogger (diagramFp options) model
 
@@ -185,15 +188,17 @@ main = do
             CorpusPiece fp -> loadMidi $ corpusDir ++ fp
             File fp        -> loadMidi fp
 
+  let aopts = def -- TODO: change harmony estimator
+
   -- MAP estimation
-  est' <- estimateGibbsNotes (keepVoices options) piece model
+  est' <- estimateGibbsNotes aopts (keepVoices options) piece model
           (iterations options) (rFun $ fPower options)
-  est <- mapEstimateNotewise (Just est') model 0 (keepVoices options)
+  est <- mapEstimateNotewise aopts (Just est') model 0 (keepVoices options)
 
   -- plot summary of estimated piece 
-  putStrLn $ "logpot/event estimate: " ++ show (meanLogPotential est model)
+  putStrLn $ "logpot/event estimate: " ++ show (meanLogPotential aopts est model)
   let fsfp    = featuresFp options
-      avgFEst = meanFeatCounts est model
+      avgFEst = meanFeatCounts aopts est model
   unless (q || null fsfp) $
     plotOverFeatures fsfp
       "Mean Feature Values (MAP Estimate)"
@@ -202,14 +207,14 @@ main = do
   -- plot comparision with corpus data
   when (compareCrp options) $ do
     ps <- corpusPieces
-    putStrLn $ "logpot/event corpus: " ++ show (meanLogPotentialN ps model)
+    putStrLn $ "logpot/event corpus: " ++ show (meanLogPotentialN aopts ps model)
     unless q $ do
       let pfx = comparePfx options
-      let avgFCorp = meanFeatCountsN ps model
+      let avgFCorp = meanFeatCountsN aopts ps model
       plotOverFeatures (pfx ++ "corpus_feats.pdf")
         "Mean Feature Values (Corpus)"
         mfNames avgFCorp
-      let avgFDiff = map log $ zipWith (/) avgFEst avgFCorp
+      let avgFDiff = VU.map log $ VU.zipWith (/) avgFEst avgFCorp
       plotOverFeatures (pfx ++ "relative_feats.pdf")
         "Mean Feature Values (Estimate/Corpus)"
         mfNames avgFDiff

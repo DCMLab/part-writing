@@ -9,6 +9,7 @@ import VoiceLeading.IO.LilyPond (viewPieceTmp)
 import Options.Applicative as OA
 import Data.Semigroup ((<>))
 import Control.Monad
+import Data.Default
 
 data Opts = Opts
   { oPiece :: FilePath
@@ -52,11 +53,12 @@ main = do
   piece' <- (loadMidi $ oPiece opts) :: IO (Piece ChoralVoice)
   let piece = filterGaps piece'
   model <- (loadModel $ oModel opts) :: IO (Model ChoralVoice)
+  let aopts = def -- TODO: load harmony profiles
   if oQuiet opts
-    then putStrLn (show $ evalPieceUnnormLog piece model)
+    then putStrLn (show $ evalPieceUnnormLog aopts piece model)
     else do
     when (oShow opts) $ do
       forM_ (pieceEvents piece) (putStrLn . show)
-    putStrLn $ "piece rating:       " <> (show $ evalPieceUnnorm piece model)
-    putStrLn $ "log piece rating:   " <> (show $ evalPieceUnnormLog piece model)
-    putStrLn $ "mean log potential: " <> (show $ meanLogPotential piece model)
+    putStrLn $ "piece rating:       " <> (show $ evalPieceUnnorm aopts piece model)
+    putStrLn $ "log piece rating:   " <> (show $ evalPieceUnnormLog aopts piece model)
+    putStrLn $ "mean log potential: " <> (show $ meanLogPotential aopts piece model)

@@ -4,6 +4,7 @@ import Data.Machine (run, source, (~>), ProcessT)
 import Data.Functor.Identity (Identity)
 import qualified Data.Map.Strict as M
 import Data.List (intercalate)
+import qualified Data.Vector.Unboxed as VU
 import Control.Monad.Trans.Maybe
 import System.Random.MWC (uniformR, GenIO)
 
@@ -42,6 +43,9 @@ iterateM n f a = f a >>= iterateM (n-1) f
 
 norm :: (Foldable f, Functor f, Floating a)  => f a -> a
 norm vector = sqrt $ sum $ fmap (\x -> x * x) vector
+
+normU :: (Floating a, VU.Unbox a) => VU.Vector a -> a
+normU vector = sqrt $ VU.sum $ VU.map (^2) vector
 
 rotate :: Int -> [a] -> [a]
 rotate n xs = take l (drop (n `mod` l) (xs ++ xs))

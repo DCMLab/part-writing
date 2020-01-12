@@ -1,12 +1,13 @@
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
-import VoiceLeading.Automaton (defaultFeaturesNamed)
+import VoiceLeading.Automaton (defaultFeaturesNamed, AutoOpts(..))
 import VoiceLeading.Learning (trainPCD, TrainingLogEntry(..))
-import VoiceLeading.Helpers (norm, RFun(..), rFun)
+import VoiceLeading.Distribution (evalModelUnnormLog, ModelParams, FeatureCounts)
+import VoiceLeading.Helpers (normU, RFun(..), rFun)
+import VoiceLeading.Theory (loadProfiles, vectorizeProfiles, matchChordProfiles, findHarm)
 
 import VoiceLeading.IO.Midi (corpusPieces)
 import VoiceLeading.IO.LilyPond (viewPieceTmp)
@@ -27,13 +28,18 @@ import System.Clock
 import Data.Aeson
 import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.ByteString.Lazy as B
+import Data.Default
+import qualified Data.Vector as V
+import qualified Data.Function.Memoize as Mem
 
 data Opts = Opts
   { iterations :: Int
+  , dataSplit :: Double
   , chainSize :: Int
   , resetRate :: Int
   , fRate :: RFun
   , fPower :: RFun
+  , profileFp :: FilePath
   , modelFp :: FilePath
   , diagramFp :: FilePath
   , gradientFp :: FilePath
@@ -48,6 +54,13 @@ opts = Opts
     <> showDefault
     <> value 100
     <> metavar "iterations" )
+  <*> option auto
+  ( long "data-split"
+    <> short 's'
+    <> help "part of the data to use for training (rest is test data)"
+    <> showDefault
+    <> value 1
+    <> metavar "FLOAT")
   <*> option auto
   ( long "chain-size"
     <> short 'c'
@@ -76,6 +89,13 @@ opts = Opts
     <> showDefault
     <> value (Cnst 1)
     <> metavar "RFUN")
+  <*> strOption
+  ( long "chord-profile"
+    <> short 'P'
+    <> help "the file from which to read the chord profiles"
+    <> showDefault
+    <> value "data/jsbach_chorals_harmony/profiles.json"
+    <> metavar "FILE" )
   <*> strOption
   ( long "model-out"
     <> short 'o'
@@ -123,18 +143,32 @@ instance Semigroup LogAction where
 --  mempty = pure ()
 
 stdLogger :: FilePath -> FilePath -> Logger
-stdLogger fpParams fpGrad = logParams fpParams <> logGrad fpGrad <> logShort
+stdLogger fpParams fpGrad = logParams fpParams <> logGrad fpGrad <> logShort <> logObjective
 
 logParams :: FilePath -> Logger
-logParams fp (TLogEntry _ _ names params _ _ _) =
+logParams fp (TLogEntry _ _ names params _ _ _ _ _ _) =
   ST.lift $ plotOverFeatures fp "Model Feature Weights" names params
   
 logGrad :: FilePath -> Logger
-logGrad fp (TLogEntry _ _ names _ gradient _ _) =
+logGrad fp (TLogEntry _ _ names _ gradient _ _ _ _ _) =
   ST.lift $ plotOverFeatures fp "Current Gradient" names gradient
 
+evalObjective :: ModelParams -> FeatureCounts -> FeatureCounts -> FeatureCounts
+              -> (Double, Double)
+evalObjective params train test chain = (cdTrain, cdTest)
+  where pChain = evalModelUnnormLog chain params
+        pTrain = evalModelUnnormLog train params
+        pTest  = evalModelUnnormLog test  params
+        cdTrain = pTrain - pChain
+        cdTest  = pTest  - pChain
+
+logObjective :: Logger
+logObjective (TLogEntry _ _ _ params _ _ _ train test chain) =
+  ST.lift $ putStrLn $ "cdTrain: " <> show cdTrain <> ", cdTest: " <> show cdTest
+  where (cdTrain, cdTest) = evalObjective params train test chain
+
 logShort :: Logger
-logShort (TLogEntry it progr _ _ gradient power rate) = do
+logShort (TLogEntry it progr _ _ gradient power rate _ _ _) = do
   now <- ST.lift $ getTime Monotonic
   (start,old) <- ST.get
   ST.put (start,now)
@@ -143,11 +177,11 @@ logShort (TLogEntry it progr _ _ gradient power rate) = do
   ST.lift $ fprint ((left 4 ' ' %. int) %" ("% lf 4 2 %") ["% (left 7 ' ' %. timeSpecs)
                      %"]: power = "% lf 5 2 %", learning rate = "% lf 5 2
                      %", |gradient| = "% f 5 %"\n")
-    it progr old now power rate (norm gradient)
+    it progr old now power rate (normU gradient)
   -- printf "%4d (%4.2f) [%2d.%.2d]: power = % 5.2f, learning rate = % 5.2f, |gradient| = % 7.5f"
 
 logJSON :: Handle -> Logger
-logJSON h (TLogEntry it prog names params gradient power rate) = do
+logJSON h (TLogEntry it prog names params gradient power rate train test chain) = do
   now <- ST.lift $ getTime Monotonic
   (start,old) <- ST.get
   ST.put (start,now)
@@ -158,28 +192,35 @@ logJSON h (TLogEntry it prog names params gradient power rate) = do
                    , "progress" .= prog
                    , "model" .= model
                    , "gradient" .= gradient
-                   , "grad_norm" .= norm gradient
+                   , "grad_norm" .= normU gradient
                    , "power" .= power
                    , "rate" .= rate
                    , "time" .= ts
-                   , "duration" .= to]
+                   , "duration" .= to
+                   , "cdTrain" .= cdTrain
+                   , "cdTest" .= cdTest ]
   ST.lift $ B.hPut h $ encodePretty obj
-  where model = object $ zipWith (.=) names params
+  where model = object $ V.toList $ V.zipWith (.=) names (V.convert params)
+        (cdTrain, cdTest) = evalObjective params train test chain
 
 main :: IO ()
 main = do
   options <- execParser optsInfo
   -- putStrLn $ show options
-  ps <- corpusPieces
-  let logger   = stdLogger (diagramFp options) (gradientFp options)
-      train lg = trainPCD ps defaultFeaturesNamed
+  pieces <- corpusPieces
+  (Just pfs) <- loadProfiles $ profileFp options
+  let profiles = vectorizeProfiles pfs
+      harmEst  = Mem.memoize $ matchChordProfiles profiles
+      aopts    = def { oHarmEstimator = harmEst }
+      logger   = stdLogger (diagramFp options) (gradientFp options)
+      train    = trainPCD aopts pieces (dataSplit options) defaultFeaturesNamed
                  (iterations options) (chainSize options) (resetRate options)
-                 (rFun $ fPower options) (rFun $ fRate options) lg
+                 (rFun $ fPower options) (rFun $ fRate options)
   now <- getTime Monotonic
   ((model, chain), _) <- if null (logFp options)
                          then ST.runStateT (train logger) (now, now)
-                         else withFile (logFp options) WriteMode $ \h -> do
-    ST.runStateT (train $ logger <> logJSON h) (now, now)
+                         else withFile (logFp options) WriteMode $
+                              \h -> ST.runStateT (train $ logger <> logJSON h) (now, now)
   -- print model
   saveModel model "trained model" (show options) (modelFp options)
   unless (hideChain options) $

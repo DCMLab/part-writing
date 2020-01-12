@@ -1,6 +1,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE BangPatterns #-}
 {-|
 Module      : VoiceLeading.Base
 Description : Basic definitions for voice leading analysis
@@ -63,6 +64,7 @@ import Data.Function.Memoize (deriveMemoizable)
 
 import GHC.Generics (Generic)
 import Data.Hashable
+import Control.DeepSeq
 
 -----------
 -- Voice --
@@ -71,7 +73,7 @@ import Data.Hashable
 -- | The 'Voice' class represents voices.
 --   An implementation must provide a list of all voices
 --   and a default pitch range for each voice.
-class (Eq a, Ord a, Show a, Read a, Enum a, Bounded a) => Voice a where
+class (Eq a, Ord a, Show a, Read a, Enum a, Bounded a, NFData a) => Voice a where
   -- | A list of all 'Voice's.
   voiceList :: [a]
   defaultRange :: a -> (Int, Int)
@@ -90,6 +92,8 @@ instance Voice ChoralVoice where
 
 instance Hashable ChoralVoice
 
+instance NFData ChoralVoice
+
 -- | 'CounterpointVoice' is an alternative implementation of 'Voice'
 --   which can be used to model two-part counterpoint.
 --   It is currently not used by the rest of the code.
@@ -100,6 +104,7 @@ instance Voice CounterpointVoice where
   voiceList = [LowCP, CF, HighCP]
 
 instance Hashable CounterpointVoice
+instance NFData CounterpointVoice
 
 -----------
 -- Pitch --
@@ -107,7 +112,7 @@ instance Hashable CounterpointVoice
 
 -- | The 'Pitch' type represents a single pitch, which can be a rest or a midi pitch.
 --   A pitch can be held from the previous event.
-data Pitch = Rest | Pitch Int Bool
+data Pitch = Rest | Pitch !Int !Bool
   deriving (Eq, Ord, Generic)
 
 -- the chromatic names of all 12 pitch classes, used for 'show'ing
@@ -122,6 +127,7 @@ instance Show Pitch where
   show (Pitch i True)  = '~' : showPitch i
 
 instance Hashable Pitch
+instance NFData Pitch
 
 -- | A list of all 'Pitch'es.
 pitchList :: [Pitch]
@@ -183,6 +189,8 @@ instance Hashable v => Hashable (Event v) where
   hashWithSalt s (Event m b) =
     s `hashWithSalt` b `hashWithSalt` lst
     where lst = M.toAscList m
+
+instance (NFData v) => NFData (Event v)
 
 -- | The empty 'Event', containing no mapping from 'Voice's to 'Pitch'es.
 emptyEvent :: Voice v => Event v
@@ -273,6 +281,7 @@ instance Show KeySig where
                 "mixolydian", "minor", "locrian"] !! mod m 7
 
 instance Hashable KeySig
+instance NFData KeySig
 
 $(deriveMemoizable ''KeySig)
 
@@ -286,6 +295,7 @@ data PieceMeta = PieceMeta
   deriving (Show, Eq, Generic)
 
 instance Hashable PieceMeta
+instance NFData PieceMeta
 
 -- | The "default" metadata, used if nothing else is known.
 nullPieceMeta = PieceMeta "untitled" (4,4) (KeySig 0 0)
@@ -299,6 +309,7 @@ data Piece v = Piece
   deriving (Show, Generic)
 
 instance Hashable v => Hashable (Piece v)
+instance (NFData v) => NFData (Piece v)
 
 -- | The type 'Pieces' is a shortcut for '[Piece]'.
 type Pieces v = [Piece v]
