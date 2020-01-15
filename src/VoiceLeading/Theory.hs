@@ -15,8 +15,11 @@ import           Data.Aeson
 import qualified Data.Map                      as M
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
+import qualified Data.Vector.Unboxed.Mutable   as VUM
 
 import qualified Debug.Trace                   as DT
+import           Numeric.SpecFunctions          ( logBeta )
+import qualified Control.Loop                  as L
 
 modal i m = [0, 2, 4, 5, 7, 9, 11] !! mod (i + m) 7
 
@@ -62,26 +65,50 @@ findHarm pitches = testRoot [0 .. 11]
     tps      = map ((`mod` 12) . (\x -> x - r)) ps
     newScore = max (testChord majorChord tps) (testChord minorChord tps)
 
-type Profile = VU.Vector Double
+type Profile = (Double, VU.Vector Double)
 type Profiles = V.Vector Profile
 
 loadProfiles :: FilePath -> IO (Maybe (M.Map String (M.Map Int Double)))
 loadProfiles = decodeFileStrict'
 
--- | Returns a vector of profile vectors.
--- Each of the elements contains all profiles but transposed upwards by the element's index.
--- Comparing a chord to the transposed profiles is the same as transposing the chord down,
--- so the index of the transposition that matches best is the root of the chord.
+-- | Returns a vector of profiles.
+-- Each profile is a pair of the total counts in the profile and the smoothed count vector.
 vectorizeProfiles :: M.Map String (M.Map Int Double) -> Profiles
 vectorizeProfiles profmap = V.fromList $ profList <$> M.elems profmap
-  where profList pm = VU.fromList [ pm M.! i | i <- [0 .. 11] ]
+ where
+  profList pm = (VU.sum lst, lst)
+    where lst = VU.fromList [ 1 + pm M.! i | i <- [0 .. 11] ]
+
+logDirichletMultinomial :: Profile -> VU.Vector Double -> Double -> Double
+logDirichletMultinomial (a0, as) xs n = num - denom
+ where
+  l = VU.length xs
+  entry acc i = if xi > 0 then acc + log xi + logBeta (as VU.! i) xi else acc
+    where xi = (xs VU.! i)
+  num   = log n + logBeta a0 n
+  denom = L.forLoopFold 0 (< l) (+ 1) 0 entry
+
+mkChord :: Int -> [Int] -> VU.Vector Double
+mkChord r pitches = VU.create $ do
+  chord <- VUM.replicate 12 0
+  mapM_ (VUM.unsafeModify chord (+ 1) . (`mod` 12) . (subtract r)) pitches
+  pure chord
 
 matchChordProfiles :: Profiles -> [Int] -> (Int, Double)
-matchChordProfiles profiles pitches = (maxRoot, sqrt $ bestMatches V.! maxRoot)
+matchChordProfiles _        []      = (0, 0)
+matchChordProfiles profiles pitches = (maxRoot, chordness)
  where
   roots = V.fromListN 12 [0 .. 11]
-  match r prof = product $ (\p -> prof VU.! ((p + r) `mod` 12)) <$> pitches -- probability of drawing these pitches from the profile
-  bestMatch r = V.minimum $ match r <$> profiles
+  n     = fromIntegral $ length pitches
+  match chord prof = logDirichletMultinomial prof chord n
+  bestMatch r = V.maximum $ match (mkChord r pitches) <$> profiles
   bestMatches = bestMatch <$> roots
-  maxRoot     = V.minIndex bestMatches
-        -- maxType = V.minIndex $ match <$> profiles V.! maxRoot
+  maxRoot     = V.maxIndex bestMatches
+  chordness   = exp $ bestMatches V.! maxRoot
+  check =
+    if (chordness >= 1)
+         || (chordness <= 0)
+         || isNaN chordness
+         || isInfinite chordness
+      then "chordness = " <> show chordness <> " for pitches " <> show pitches
+      else ""
