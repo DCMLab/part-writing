@@ -1,0 +1,98 @@
+name: vl-haskell
+version: 0.1.0
+author: Christoph Finkensiep
+copyright: 2020 Christoph Finkensiep
+license: BSD3
+license-file: LICENSE
+
+data-dir: data
+
+dependencies:
+  - aeson
+  - aeson-pretty
+  - base >= 4.7 && < 5
+  - bytestring
+  - Chart
+  - Chart-cairo
+  - colour
+  - containers
+  - data-default
+  - deepseq
+  - directory
+  - filepath
+  - hashable
+  - HCodecs
+  - lens
+  - lilypond
+  - loop
+  - machines
+  - math-functions >= 0.3.3.0
+  - memoize
+  - mtl
+  - mwc-random
+  - palette
+  - prettify
+  - primitive
+  - process
+  - streamly
+  - temporary
+  - terminal-progress-bar
+  - text
+  - transformers
+  - vector
+  
+library:
+  source-dirs:
+    - src
+  other-modules:
+    - VoiceLeading.IO.HorizontalBars
+
+source-dirs: [app]
+ghc-options: [-threaded, -rtsopts, -with-rtsopts=-N]
+
+executables:
+
+  vl-haskell-exe:
+    main: Main.hs
+    other-modules: []
+    dependencies:
+      - vl-haskell
+
+  vl-train:
+    main: train.hs
+    other-modules: []
+    dependencies:
+      - vl-haskell
+      - clock
+      - formatting
+      - optparse-applicative
+
+  vl-compose:
+    main: compose.hs
+    other-modules: []
+    dependencies:
+      - vl-haskell
+      - optparse-applicative
+      - yaml
+
+  vl-view-model:
+    main: view-model.hs
+    other-modules: []
+    dependencies:
+      - vl-haskell
+      - optparse-applicative
+
+  vl-rate:
+    main: rate.hs
+    other-modules: []
+    dependencies:
+      - vl-haskell
+      - optparse-applicative
+    
+
+tests:
+  vl-haskell-test:
+    source-dirs: [test]
+    main: Spec.hs
+    ghc-options: [-threaded, -rtsopts, -with-rtsopts=-N]
+  

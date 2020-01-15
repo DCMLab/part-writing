@@ -1,133 +1,329 @@
-name:                vl-haskell
-version:             0.1.0.0
-synopsis:            Initial project template from stack
-description:         Please see README.md
-homepage:            https://github.com/githubuser/vl-haskell#readme
-license:             BSD3
-license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2017 Author name here
-category:            Web
-build-type:          Simple
-extra-source-files:  README.md
-cabal-version:       >=1.10
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 631fa866368e2695c716c44f81ace8ae658d3ed8c782e0e078fb9d236ca1eff4
+
+name:           vl-haskell
+version:        0.1.0
+author:         Christoph Finkensiep
+maintainer:     Christoph Finkensiep
+copyright:      2020 Christoph Finkensiep
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+data-dir:       data
 
 library
-  hs-source-dirs:      src
-  exposed-modules:     VoiceLeading.Base
-                     , VoiceLeading.Theory
-                     , VoiceLeading.Distribution
-                     , VoiceLeading.Automaton
-                     , VoiceLeading.Learning
-                     , VoiceLeading.Inference
-                     , VoiceLeading.Helpers
-                     , VoiceLeading.IO.Midi
-                     , VoiceLeading.IO.LilyPond
-                     , VoiceLeading.IO.Model
-                     , VoiceLeading.IO.Plotting
-  other-modules:       VoiceLeading.IO.HorizontalBars
-  build-depends:       base >= 4.7 && < 5
-                     , containers
-                     , vector
-                     , mtl
-                     , primitive
-                     , transformers
-                     , lens
-                     , memoize
-                     , hashable
-                     , data-default
-                     , machines
-                     , mwc-random
-                     , streamly
-                     , deepseq
-                     , filepath
-                     , directory
-                     , temporary
-                     , process
-                     , aeson
-                     , aeson-pretty
-                     , text
-                     , bytestring
-                     , HCodecs
-                     , lilypond
-                     , prettify
-                     , terminal-progress-bar
-                     , loop
-                     , Chart, Chart-cairo, colour, palette
-  default-language:    Haskell2010
-
-executable vl-haskell-exe
-  hs-source-dirs:      app
-  main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , vl-haskell
-                     , data-default
-                     , containers
-                     , vector
-                     , memoize
-  default-language:    Haskell2010
-
-executable vl-train
-  hs-source-dirs:      app
-  main-is:             Train.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , vl-haskell
-                     , optparse-applicative
-                     , data-default
-                     , memoize
-                     , clock
-                     , formatting
-                     , aeson, aeson-pretty
-                     , bytestring
-                     , mtl
-                     , vector
-  default-language:    Haskell2010
+  exposed-modules:
+      Main
+      VoiceLeading.Automaton
+      VoiceLeading.Base
+      VoiceLeading.Distribution
+      VoiceLeading.Helpers
+      VoiceLeading.Inference
+      VoiceLeading.IO.LilyPond
+      VoiceLeading.IO.Midi
+      VoiceLeading.IO.Model
+      VoiceLeading.IO.Plotting
+      VoiceLeading.Learning
+      VoiceLeading.Theory
+  other-modules:
+      VoiceLeading.IO.HorizontalBars
+  hs-source-dirs:
+      app
+      src
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Chart
+    , Chart-cairo
+    , HCodecs
+    , aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , colour
+    , containers
+    , data-default
+    , deepseq
+    , directory
+    , filepath
+    , hashable
+    , lens
+    , lilypond
+    , loop
+    , machines
+    , math-functions >=0.3.3.0
+    , memoize
+    , mtl
+    , mwc-random
+    , palette
+    , prettify
+    , primitive
+    , process
+    , streamly
+    , temporary
+    , terminal-progress-bar
+    , text
+    , transformers
+    , vector
+  default-language: Haskell2010
 
 executable vl-compose
-  hs-source-dirs:      app
-  main-is:             Compose.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , vl-haskell
-                     , data-default
-                     , optparse-applicative
-                     , yaml
-                     , text
-                     , vector
-  default-language:    Haskell2010
+  main-is: compose.hs
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Chart
+    , Chart-cairo
+    , HCodecs
+    , aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , colour
+    , containers
+    , data-default
+    , deepseq
+    , directory
+    , filepath
+    , hashable
+    , lens
+    , lilypond
+    , loop
+    , machines
+    , math-functions >=0.3.3.0
+    , memoize
+    , mtl
+    , mwc-random
+    , optparse-applicative
+    , palette
+    , prettify
+    , primitive
+    , process
+    , streamly
+    , temporary
+    , terminal-progress-bar
+    , text
+    , transformers
+    , vector
+    , vl-haskell
+    , yaml
+  default-language: Haskell2010
 
-executable vl-view-model
-  hs-source-dirs:      app
-  main-is:             ViewModel.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , vl-haskell
-                     , optparse-applicative
-                     , filepath
-  default-language:    Haskell2010
+executable vl-haskell-exe
+  main-is: Main.hs
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Chart
+    , Chart-cairo
+    , HCodecs
+    , aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , colour
+    , containers
+    , data-default
+    , deepseq
+    , directory
+    , filepath
+    , hashable
+    , lens
+    , lilypond
+    , loop
+    , machines
+    , math-functions >=0.3.3.0
+    , memoize
+    , mtl
+    , mwc-random
+    , palette
+    , prettify
+    , primitive
+    , process
+    , streamly
+    , temporary
+    , terminal-progress-bar
+    , text
+    , transformers
+    , vector
+    , vl-haskell
+  default-language: Haskell2010
 
 executable vl-rate
-           hs-source-dirs: app
-           main-is:        Rate.hs
-           ghc-options:    -threaded -rtsopts -with-rtsopts=-N
-           build-depends:  base
-                         , vl-haskell
-                         , data-default
-                         , optparse-applicative
-           default-language: Haskell2010
+  main-is: rate.hs
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Chart
+    , Chart-cairo
+    , HCodecs
+    , aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , colour
+    , containers
+    , data-default
+    , deepseq
+    , directory
+    , filepath
+    , hashable
+    , lens
+    , lilypond
+    , loop
+    , machines
+    , math-functions >=0.3.3.0
+    , memoize
+    , mtl
+    , mwc-random
+    , optparse-applicative
+    , palette
+    , prettify
+    , primitive
+    , process
+    , streamly
+    , temporary
+    , terminal-progress-bar
+    , text
+    , transformers
+    , vector
+    , vl-haskell
+  default-language: Haskell2010
+
+executable vl-train
+  main-is: train.hs
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Chart
+    , Chart-cairo
+    , HCodecs
+    , aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , clock
+    , colour
+    , containers
+    , data-default
+    , deepseq
+    , directory
+    , filepath
+    , formatting
+    , hashable
+    , lens
+    , lilypond
+    , loop
+    , machines
+    , math-functions >=0.3.3.0
+    , memoize
+    , mtl
+    , mwc-random
+    , optparse-applicative
+    , palette
+    , prettify
+    , primitive
+    , process
+    , streamly
+    , temporary
+    , terminal-progress-bar
+    , text
+    , transformers
+    , vector
+    , vl-haskell
+  default-language: Haskell2010
+
+executable vl-view-model
+  main-is: view-model.hs
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Chart
+    , Chart-cairo
+    , HCodecs
+    , aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , colour
+    , containers
+    , data-default
+    , deepseq
+    , directory
+    , filepath
+    , hashable
+    , lens
+    , lilypond
+    , loop
+    , machines
+    , math-functions >=0.3.3.0
+    , memoize
+    , mtl
+    , mwc-random
+    , optparse-applicative
+    , palette
+    , prettify
+    , primitive
+    , process
+    , streamly
+    , temporary
+    , terminal-progress-bar
+    , text
+    , transformers
+    , vector
+    , vl-haskell
+  default-language: Haskell2010
 
 test-suite vl-haskell-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
-  main-is:             Spec.hs
-  build-depends:       base
-                     , vl-haskell
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  default-language:    Haskell2010
-
-source-repository head
-  type:     git
-  location: https://github.com/githubuser/vl-haskell
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Main
+      Paths_vl_haskell
+  hs-source-dirs:
+      app
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Chart
+    , Chart-cairo
+    , HCodecs
+    , aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , colour
+    , containers
+    , data-default
+    , deepseq
+    , directory
+    , filepath
+    , hashable
+    , lens
+    , lilypond
+    , loop
+    , machines
+    , math-functions >=0.3.3.0
+    , memoize
+    , mtl
+    , mwc-random
+    , palette
+    , prettify
+    , primitive
+    , process
+    , streamly
+    , temporary
+    , terminal-progress-bar
+    , text
+    , transformers
+    , vector
+  default-language: Haskell2010
