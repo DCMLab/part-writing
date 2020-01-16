@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 631fa866368e2695c716c44f81ace8ae658d3ed8c782e0e078fb9d236ca1eff4
+-- hash: acf3ad6e63f4450a73d84664296d5985111719baddd22001938652f746b20ca5
 
 name:           vl-haskell
 version:        0.1.0
@@ -50,6 +50,7 @@ library
     , deepseq
     , directory
     , filepath
+    , ghc
     , hashable
     , lens
     , lilypond
@@ -90,6 +91,7 @@ executable vl-compose
     , deepseq
     , directory
     , filepath
+    , ghc
     , hashable
     , lens
     , lilypond
@@ -133,6 +135,7 @@ executable vl-haskell-exe
     , deepseq
     , directory
     , filepath
+    , ghc
     , hashable
     , lens
     , lilypond
@@ -174,6 +177,7 @@ executable vl-rate
     , deepseq
     , directory
     , filepath
+    , ghc
     , hashable
     , lens
     , lilypond
@@ -218,6 +222,7 @@ executable vl-train
     , directory
     , filepath
     , formatting
+    , ghc
     , hashable
     , lens
     , lilypond
@@ -260,6 +265,7 @@ executable vl-view-model
     , deepseq
     , directory
     , filepath
+    , ghc
     , hashable
     , lens
     , lilypond
@@ -307,6 +313,7 @@ test-suite vl-haskell-test
     , deepseq
     , directory
     , filepath
+    , ghc
     , hashable
     , lens
     , lilypond

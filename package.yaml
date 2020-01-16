@@ -20,6 +20,7 @@ dependencies:
   - deepseq
   - directory
   - filepath
+  - ghc
   - hashable
   - HCodecs
   - lens

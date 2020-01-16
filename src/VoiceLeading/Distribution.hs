@@ -59,7 +59,7 @@ module VoiceLeading.Distribution
   , meanFeatCounts
   , meanFeatCountsN
   , expectedFeats
-  , expectedFeatsP
+  , expectedFeatsM
   )
 where
 
@@ -232,13 +232,13 @@ expectedFeats opts pieces features = VU.map (/ n) counts
   pieceCounts = flip (countFeaturesP opts) features <$> pieces
   counts      = sumFeaturesP features pieceCounts
 
-expectedFeatsP
+expectedFeatsM
   :: (Voice v, S.MonadAsync m)
   => AutoOpts v
   -> [Piece v]
   -> V.Vector (Feature v)
   -> m FeatureCounts
-expectedFeatsP !opts !pieces !features = do
+expectedFeatsM !opts !pieces !features = do
   let pieceCounts =
         S.asyncly
           $ S.mapM (pure . flip (countFeaturesP opts) features)

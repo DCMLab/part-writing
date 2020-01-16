@@ -22,6 +22,7 @@ import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Map.Strict               as M
 import qualified Data.Text                     as T
 import           System.Random.MWC              ( GenIO
+                                                , Gen(..)
                                                 , createSystemRandom
                                                 , uniform
                                                 )
@@ -29,6 +30,7 @@ import           System.Random.MWC.Distributions
                                                 ( normal
                                                 , categorical
                                                 , uniformShuffle
+                                                , bernoulli
                                                 )
 import           Control.Monad.Primitive        ( PrimMonad
                                                 , PrimState
@@ -48,15 +50,14 @@ import qualified Streamly.Prelude              as S
 import           Control.DeepSeq                ( deepseq
                                                 , force
                                                 )
-import           System.IO                      ( hFlush
-                                                , stdout
-                                                )
 import           System.Mem                     ( performGC )
 
 import           Debug.Trace                   as DT
 import           Data.Hashable                  ( Hashable
                                                 , hash
                                                 )
+import           Data.Traversable               ( mapAccumL )
+import           MonadUtils                     ( mapAccumLM )
 
 --------------------
 -- Gibbs sampling --
@@ -351,21 +352,19 @@ noteKernel state (orig : evs) ctx model power gen pVec vVec = do
 data TrainingLogEntry = TLogEntry
                         { leIt :: Int
                         , leProgress :: Double
-                        , leNames :: V.Vector T.Text
                         , leParams :: ModelParams
                         , leGradient :: ModelParams
                         , lePower :: Double
                         , leRate :: Double
-                        , leTrainData :: FeatureCounts
-                        , leTestData :: FeatureCounts
                         , leChainData :: FeatureCounts
                         }
 
 trainPCD
   :: (Hashable v, Voice v, S.MonadAsync m)
-  => AutoOpts v
+  => GenIO
+  -> AutoOpts v
   -> [Piece v]
-  -> Double
+  -> FeatureCounts
   -> [NamedFeature v]
   -> Int
   -> Int
@@ -374,19 +373,10 @@ trainPCD
   -> (Double -> Double)
   -> (TrainingLogEntry -> m ())
   -> m (Model v, [Piece v])
-trainPCD opts pieces dataSplit features iterations chainSize restartEvery fPower fRate logger
+trainPCD gen opts pieces expData features iterations chainSize restartEvery fPower fRate logger
   = do
-    gen <- liftIO createSystemRandom
-    liftIO $ putStr "counting features of corpus... "
-    liftIO $ hFlush stdout
-    let feats                     = V.fromList $ nfFeature <$> features
-        fNames                    = V.fromList $ nfName <$> features
-        featMap                   = featureMap voiceList features
-        nsplit = round (fromIntegral (length pieces) * dataSplit)
-        (trainPieces, testPieces) = splitAt nsplit pieces
-    expData <- expectedFeatsP opts trainPieces feats
-    expTest <- expectedFeatsP opts testPieces feats
-    liftIO $ expData `deepseq` putStrLn "done."
+    let feats   = V.fromList $ nfFeature <$> features
+        featMap = featureMap voiceList features
     -- initChain <- liftIO $ take chainSize . V.toList <$> uniformShuffle (V.fromList pieces) gen
     let initChain = take chainSize pieces
     let initParams = VU.replicate (length features) 0 -- alternative: normal 0 1 gen?
@@ -407,16 +397,7 @@ trainPCD opts pieces dataSplit features iterations chainSize restartEvery fPower
               gradient  = VU.zipWith (-) expData expChain
               rate      = fRate progress
               newParams = VU.zipWith (\p g -> p + rate * g) params gradient
-          logger $ TLogEntry it
-                             progress
-                             fNames
-                             newParams
-                             gradient
-                             power
-                             rate
-                             expData
-                             expTest
-                             expChain
+          logger $ TLogEntry it progress newParams gradient power rate expChain
           pure (newParams, newChain, it + 1)
          where
           sampleZipper pw p c = liftIO $ gibbsStepNote (const (pVec, ()))
@@ -435,3 +416,51 @@ trainPCD opts pieces dataSplit features iterations chainSize restartEvery fPower
       (initParams, map extendPiece initChain, 0)
     let chainPieces = zipWith extractPiece chainMetas finalChain
     pure (Model (V.fromList features) finalParams, chainPieces)
+
+-----------------------
+-- stopping criteria --
+-----------------------
+
+neighbor
+  :: forall v m
+   . (Voice v, PrimMonad m)
+  => Gen (PrimState m)
+  -> Double
+  -> Piece v
+  -> m (Piece v)
+neighbor gen k (Piece meta evs) =
+  Piece meta . snd <$> mapAccumLM neighborEv emptyEvent evs
+ where
+  coin :: m Bool
+  coin = bernoulli k gen
+  neighborEv :: Event v -> Event v -> m (Event v, Event v)
+  neighborEv prev ev = do
+    ev' <- foldM (sampleVoice prev) ev voiceList
+    pure (ev', ev')
+  sampleVoice :: Event v -> Event v -> v -> m (Event v)
+  sampleVoice prev ev@(Event pitches beat) v = do
+    change <- coin
+    if change
+      then (\p' -> Event (M.insert v p' pitches) beat) <$> drawPitch
+      else pure ev
+   where
+    prevp :: Maybe Pitch
+    prevp = evGetMaybe prev v
+    pVec  = case prevp of -- if preceded by pitch, add holding variant
+      Just (Pitch i _) -> pitchVector `V.snoc` (Pitch i True)
+      _                -> pitchVector
+    np        = V.length pVec
+    drawPitch = do
+      rand <- uniform gen :: m Double
+      pure $ pVec V.! (min np (ceiling (rand * fromIntegral np) - 1))
+
+stoppingXi
+  :: Double -> FeatureCounts -> [FeatureCounts] -> ModelParams -> Double
+stoppingXi scale train neighbors params = xiTrain - xiNb
+ where
+  xiTrain = evalModelUnnormLog train params
+  xiNb =
+    log
+      $   sum
+      $   (\nb -> exp $ evalModelUnnormLog nb params - scale)
+      <$> neighbors
