@@ -383,7 +383,7 @@ trainPCD gen opts pieces expData features iterations chainSize restartEvery fPow
         chainMetas = map pieceMeta initChain
         chainCtxs  = map (mkDefaultCtx opts . keySignature) chainMetas
         pVec       = pitchVector
-        vVec       = V.fromList voiceList
+        vVec       = voiceVector
         iterd      = fromIntegral iterations - 1
         update (params, chain, it) = do
           let progress = fromIntegral it / iterd

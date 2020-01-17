@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: acf3ad6e63f4450a73d84664296d5985111719baddd22001938652f746b20ca5
+-- hash: 53e5bb7d712bae299b029422756015f2307088dc640c2e766ddfbc50ff322a82
 
 name:           vl-haskell
 version:        0.1.0
@@ -18,7 +18,6 @@ data-dir:       data
 
 library
   exposed-modules:
-      Main
       VoiceLeading.Automaton
       VoiceLeading.Base
       VoiceLeading.Distribution
@@ -33,7 +32,6 @@ library
   other-modules:
       VoiceLeading.IO.HorizontalBars
   hs-source-dirs:
-      app
       src
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
@@ -75,7 +73,7 @@ library
 executable vl-compose
   main-is: compose.hs
   hs-source-dirs:
-      app
+      app/compose
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Chart
@@ -129,12 +127,14 @@ executable vl-haskell-exe
     , aeson-pretty
     , base >=4.7 && <5
     , bytestring
+    , clock
     , colour
     , containers
     , data-default
     , deepseq
     , directory
     , filepath
+    , formatting
     , ghc
     , hashable
     , lens
@@ -145,6 +145,7 @@ executable vl-haskell-exe
     , memoize
     , mtl
     , mwc-random
+    , optparse-applicative
     , palette
     , prettify
     , primitive
@@ -156,12 +157,13 @@ executable vl-haskell-exe
     , transformers
     , vector
     , vl-haskell
+    , yaml
   default-language: Haskell2010
 
 executable vl-rate
   main-is: rate.hs
   hs-source-dirs:
-      app
+      app/rate
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Chart
@@ -204,7 +206,7 @@ executable vl-rate
 executable vl-train
   main-is: train.hs
   hs-source-dirs:
-      app
+      app/train
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Chart
@@ -249,7 +251,7 @@ executable vl-train
 executable vl-view-model
   main-is: view-model.hs
   hs-source-dirs:
-      app
+      app/view-model
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Chart
@@ -293,10 +295,8 @@ test-suite vl-haskell-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Main
       Paths_vl_haskell
   hs-source-dirs:
-      app
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -threaded -rtsopts -with-rtsopts=-N
   build-depends:

@@ -74,6 +74,7 @@ module VoiceLeading.Base
 where
 
 import qualified Data.Map.Strict               as M
+import qualified Data.Vector                   as V
 import qualified Data.List                     as L
 import qualified Debug.Trace                   as DT
 import           VoiceLeading.Helpers           ( showMap )
@@ -93,7 +94,10 @@ import           Control.DeepSeq
 --   and a default pitch range for each voice.
 class (Eq a, Ord a, Show a, Read a, Enum a, Bounded a, NFData a) => Voice a where
   -- | A list of all 'Voice's.
+  voiceVector :: V.Vector a
+  voiceVector = V.enumFromTo minBound maxBound
   voiceList :: [a]
+  voiceList = V.toList voiceVector
   defaultRange :: a -> (Int, Int)
   defaultRange v = (38,81) -- some kind of vocal range default values
 
@@ -102,7 +106,7 @@ data ChoralVoice = Bass | Tenor | Alto | Soprano
   deriving (Eq, Ord, Enum, Bounded, Show, Read, Generic)
 
 instance Voice ChoralVoice where
-  voiceList = [Bass, Tenor, Alto, Soprano]
+  voiceVector = V.fromList [Bass, Tenor, Alto, Soprano]
   defaultRange Bass    = (38, 62)
   defaultRange Tenor   = (48, 69)
   defaultRange Alto    = (55, 74)
@@ -119,7 +123,7 @@ data CounterpointVoice = LowCP | CF | HighCP
   deriving (Eq, Ord, Enum, Bounded, Show, Read, Generic)
 
 instance Voice CounterpointVoice where
-  voiceList = [LowCP, CF, HighCP]
+  voiceVector = V.fromList [LowCP, CF, HighCP]
 
 instance Hashable CounterpointVoice
 instance NFData CounterpointVoice

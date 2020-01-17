@@ -57,7 +57,7 @@ uniformRandomPiece n gen = do
     beats = map fromIntegral
       $ iterate (\b -> (b + 1) `mod` bpb) (fromIntegral firstBeat)
   evs <- replicateM n (uniformRandomEvent gen)
-  pure $ Piece meta (zipWith Event evs beats)
+  pure $ Piece meta (zipWith toEv evs beats)
 
 uniformRandomPiece' :: Voice v => Int -> IO (Piece v)
 uniformRandomPiece' n = do

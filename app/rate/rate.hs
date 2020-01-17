@@ -45,7 +45,7 @@ optsPInfo = info (optsParser <**> helper)
 
 filterGaps :: Voice v => Piece v -> Piece v
 filterGaps (Piece meta events) = Piece meta evs'
-  where evs' = filter (not . isEmptyEvent . removeRests) events
+  where evs' = filter (not . isEmptyEvent) events
 
 main :: IO ()
 main = do

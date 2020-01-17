@@ -1,0 +1,4 @@
+cradle:
+  stack:
+    - path: "./"
+      component: "vl-haskell:exe:vl-haskell-exe"

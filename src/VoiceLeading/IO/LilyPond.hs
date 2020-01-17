@@ -76,10 +76,10 @@ lyFooter :: String
 lyFooter = "\n  \\layout{}\n  \\midi{ \\tempo 4 = 90 }\n}"
 
 pieceToLy' :: Voice v => Piece v -> L.Music
-pieceToLy' p@(Piece meta (e1 : _)) =
-  L.New "StaffGroup" Nothing $ L.Simultaneous False staves
+pieceToLy' p@(Piece meta _) = L.New "StaffGroup" Nothing
+  $ L.Simultaneous False staves
  where
-  vs     = reverse $ sort (voices e1)
+  vs     = voiceList
   staves = map (L.New "Staff" Nothing . voiceToLy p) vs
 
 voiceToLy :: Voice v => Piece v -> v -> L.Music

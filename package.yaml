@@ -48,20 +48,24 @@ library:
   other-modules:
     - VoiceLeading.IO.HorizontalBars
 
-source-dirs: [app]
 ghc-options: [-threaded, -rtsopts, -with-rtsopts=-N]
 
 executables:
 
   vl-haskell-exe:
+    source-dirs: [app]
     main: Main.hs
     other-modules: []
     dependencies:
       - vl-haskell
+      - clock
+      - formatting
+      - optparse-applicative
+      - yaml
 
   vl-train:
+    source-dirs: [app/train]
     main: train.hs
-    other-modules: []
     dependencies:
       - vl-haskell
       - clock
@@ -69,23 +73,23 @@ executables:
       - optparse-applicative
 
   vl-compose:
+    source-dirs: [app/compose]
     main: compose.hs
-    other-modules: []
     dependencies:
       - vl-haskell
       - optparse-applicative
       - yaml
 
   vl-view-model:
+    source-dirs: [app/view-model]
     main: view-model.hs
-    other-modules: []
     dependencies:
       - vl-haskell
       - optparse-applicative
 
   vl-rate:
+    source-dirs: [app/rate]
     main: rate.hs
-    other-modules: []
     dependencies:
       - vl-haskell
       - optparse-applicative
