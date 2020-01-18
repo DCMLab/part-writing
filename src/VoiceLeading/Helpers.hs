@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 module VoiceLeading.Helpers where
 
 import           Data.Machine                   ( run
@@ -14,6 +15,10 @@ import           System.Random.MWC              ( uniformR
                                                 , GenIO
                                                 )
 import           Data.Word                      ( Word32 )
+import           GHC.Generics                   ( Generic )
+import           Data.Aeson
+import           Data.Aeson.Types               ( Parser )
+import qualified Data.Text                     as T
 
 processList :: Foldable t => t i -> ProcessT Identity i o -> [o]
 processList ins p = run $ source ins ~> p
@@ -88,7 +93,16 @@ data RFun = Cnst Double
           | Cub Double Double
           | Pow Double Double Double
           | Exp Double Double
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance ToJSON RFun where
+  toJSON = Data.Aeson.String . T.pack . show
+
+parseRead :: Read a => String -> Value -> Parser a
+parseRead expected = withText expected $ \v -> pure (read (T.unpack v))
+
+instance FromJSON RFun where
+  parseJSON = parseRead "RFun"
 
 rFun :: RFun -> Double -> Double
 rFun (Cnst k   ) = const k

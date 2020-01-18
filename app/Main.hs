@@ -11,14 +11,16 @@ import           VoiceLeading.IO.Model
 import           VoiceLeading.IO.Midi
 import           VoiceLeading.IO.LilyPond
 import           VoiceLeading.IO.Plotting
-import qualified Data.Map                      as M
 
+import qualified Data.Map                      as M
+import           Data.List                      ( maximumBy )
 import           Control.Monad
 import           Data.Default
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import           Data.Function.Memoize
 import           Data.Maybe                     ( catMaybes )
+import           Data.Ord                       ( comparing )
 
 -- pitchify i = Pitch i False
 -- joinVoices a b = toEv $ M.fromList [(CF, a), (LowCP, b)]
@@ -72,14 +74,16 @@ main2 = do
 
 main = do
   (Just pfs) <- loadProfiles "data/jsbach_chorals_harmony/profiles.json"
-  let harm    = traceMemoize $ matchChordProfiles $ vectorizeProfiles pfs
+  let harm    = matchChordProfiles $ vectorizeProfiles pfs
       pitches = (Just <$> [0 .. 11]) <> [Nothing]
-  putStrLn $ show $ sum $ do
+  putStrLn $ show $ harm [0, 4, 7, 10]
+  putStrLn $ show $ maximumBy (comparing fst) $ do
     p1 <- pitches
     p2 <- pitches
     p3 <- pitches
     p4 <- pitches
-    pure $ snd $ harm $ catMaybes [p1, p2, p3, p4]
+    let chord = catMaybes [p1, p2, p3, p4]
+    pure $ (snd $ harm chord, chord)
   putStrLn $ show $ sum $ do
     p1 <- reverse pitches
     p2 <- reverse pitches

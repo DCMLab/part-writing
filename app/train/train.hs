@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Main where
 
@@ -14,6 +15,8 @@ import           VoiceLeading.Learning          ( trainPCD
                                                 , TrainingLogEntry(..)
                                                 , neighbor
                                                 , stoppingXi
+                                                , momentum
+                                                , adam
                                                 )
 import           VoiceLeading.Distribution      ( evalModelUnnormLog
                                                 , expectedFeatsM
@@ -26,6 +29,7 @@ import           VoiceLeading.Helpers           ( normU
                                                 , RFun(..)
                                                 , rFun
                                                 , defaultSeed
+                                                , linear
                                                 )
 import           VoiceLeading.Theory            ( loadProfiles
                                                 , vectorizeProfiles
@@ -67,6 +71,7 @@ import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Function.Memoize         as Mem
 import qualified Data.Text                     as T
+import           GHC.Generics                   ( Generic )
 
 data Opts = Opts
   { iterations :: Int
@@ -75,6 +80,7 @@ data Opts = Opts
   , chainSize :: Int
   , resetRate :: Int
   , fRate :: RFun
+  , fRateFast :: RFun
   , fPower :: RFun
   , profileFp :: FilePath
   , modelFp :: FilePath
@@ -82,7 +88,12 @@ data Opts = Opts
   , gradientFp :: FilePath
   , logFp :: FilePath
   , hideChain :: Bool }
-  deriving (Show, Read, Eq)
+  deriving (Show, Read, Eq, Generic)
+
+instance ToJSON Opts where
+  toEncoding = genericToEncoding defaultOptions
+
+instance FromJSON Opts
 
 opts :: Parser Opts
 opts =
@@ -136,6 +147,15 @@ opts =
           (  long "learning-rate"
           <> short 'l'
           <> help "the value of the learning rate (over time)"
+          <> showDefault
+          <> value (Cnst 0.1)
+          <> metavar "RFUN"
+          )
+    <*> option
+          auto
+          (  long "fast-learning-rate"
+          <> short 'f'
+          <> help "the learning rate for the fast parameters"
           <> showDefault
           <> value (Cnst 0.1)
           <> metavar "RFUN"
@@ -214,7 +234,7 @@ stdLogger
   :: V.Vector T.Text
   -> FeatureCounts
   -> FeatureCounts
-  -> (ModelParams -> [Double])
+  -> (ModelParams -> Double)
   -> FilePath
   -> FilePath
   -> Logger
@@ -247,7 +267,7 @@ evalObjective params train test chain = (cdTrain, cdTest)
   cdTest  = pTest - pChain
 
 logObjective
-  :: FeatureCounts -> FeatureCounts -> (ModelParams -> [Double]) -> Logger
+  :: FeatureCounts -> FeatureCounts -> (ModelParams -> Double) -> Logger
 logObjective train test stopCrit (TLogEntry _ _ params _ _ _ chain) =
   ST.lift
     $  putStrLn
@@ -255,8 +275,8 @@ logObjective train test stopCrit (TLogEntry _ _ params _ _ _ chain) =
     <> show cdTrain
     <> ", cdTest: "
     <> show cdTest
-    -- <> ", log xi: "
-    -- <> show (stopCrit params)
+    <> ", log xi: "
+    <> show (stopCrit params)
   where (cdTrain, cdTest) = evalObjective params train test chain
 
 logShort :: Logger
@@ -290,38 +310,40 @@ logShort (TLogEntry it progr _ gradient power rate _) = do
   -- printf "%4d (%4.2f) [%2d.%.2d]: power = % 5.2f, learning rate = % 5.2f, |gradient| = % 7.5f"
 
 logJSON
-  :: V.Vector T.Text
+  :: FeatureCounts
   -> FeatureCounts
-  -> FeatureCounts
-  -> (ModelParams -> [Double])
+  -> (ModelParams -> Double)
   -> Handle
   -> Logger
-logJSON names train test stopCrit h (TLogEntry it prog params gradient power rate chain)
+logJSON train test stopCrit h (TLogEntry it prog params gradient power rate chain)
   = do
-    now          <- ST.lift $ getTime Monotonic
-    (start, old) <- ST.get
-    ST.put (start, now)
-    let diff a b = toNanoSecs $ diffTimeSpec a b
-        ts  = diff start now
-        to  = diff old now
+    -- now          <- ST.lift $ getTime Monotonic
+    -- (start, old) <- ST.get
+    -- ST.put (start, now)
+    let -- diff a b = toNanoSecs $ diffTimeSpec a b
+        -- ts  = diff start now
+        -- to  = diff old now
         obj = object
           [ "iteration" .= it
           , "progress" .= prog
-          , "model" .= model
+          , "params" .= params
           , "gradient" .= gradient
           , "grad_norm" .= normU gradient
           , "power" .= power
           , "rate" .= rate
-          , "time" .= ts
-          , "duration" .= to
+          -- , "time" .= ts
+          -- , "duration" .= to
           , "cdTrain" .= cdTrain
           , "cdTest" .= cdTest
           , "stopCrit" .= stopCrit params
           ]
     ST.lift $ B.hPut h $ encodePretty obj
- where
-  model = object $ V.toList $ V.zipWith (.=) names (V.convert params)
-  (cdTrain, cdTest) = evalObjective params train test chain
+  where (cdTrain, cdTest) = evalObjective params train test chain
+  -- model = object $ V.toList $ V.zipWith (.=) names (V.convert params)
+
+logJSONHeader h names opts = do
+  ST.lift $ B.hPut h $ encodePretty $ object
+    ["features" .= names, "options" .= opts]
 
 main :: IO ()
 main = do
@@ -332,6 +354,7 @@ main = do
 
   let feats  = V.fromList $ nfFeature <$> defaultFeaturesNamed
       fNames = V.fromList $ nfName <$> defaultFeaturesNamed
+      nFeats = V.length feats
 
   (Just pfs) <- loadProfiles $ profileFp options
   let profiles = vectorizeProfiles pfs
@@ -347,40 +370,46 @@ main = do
   expTrain  <- expectedFeatsM aopts trainPieces feats
   expTest   <- expectedFeatsM aopts testPieces feats
 
-  -- neighbors <- mapM (neighbor gen $ neighborDist options) pieces
-  -- let countsNbh = concatMap (\nb -> runFeaturesOn aopts nb feats) neighbors
-  neighbors <- mapM (\d -> mapM (neighbor gen d) pieces)
-                    [1, 0.5, 0.1, 0.05, 0.01, 0.001]
-  let countsNbh = concatMap (\nb -> runFeaturesOn aopts nb feats) <$> neighbors
+  neighbors <- mapM (neighbor gen $ neighborDist options) pieces
+  let countsNbh = concatMap (\nb -> runFeaturesOn aopts nb feats) neighbors
+  -- neighbors <- mapM (\d -> mapM (neighbor gen d) pieces)
+  --                   [1, 0.5, 0.1, 0.05, 0.01, 0.001]
+  -- let countsNbh = concatMap (\nb -> runFeaturesOn aopts nb feats) <$> neighbors
   countsTrainPieces <- mapM (\nb -> countFeaturesM aopts nb feats) trainPieces
   countsTrain <- VU.map (/ ntrain) <$> sumFeaturesM feats countsTrainPieces
 
   liftIO $ expTrain `deepseq` expTest `deepseq` putStrLn "done."
 
   let scale = 0 -- fromIntegral $ maximum $ pieceLen <$> pieces
-      stopCrit params =
-        (\nbs -> stoppingXi scale countsTrain nbs params) <$> countsNbh
+      stopCrit params = stoppingXi scale countsTrain countsNbh params
       logger = stdLogger fNames
                          expTrain
                          expTest
                          stopCrit
                          (diagramFp options)
                          (gradientFp options)
-      train = trainPCD gen
-                       aopts
-                       trainPieces
-                       expTrain
-                       defaultFeaturesNamed
-                       (iterations options)
-                       (chainSize options)
-                       (resetRate options)
-                       (rFun $ fPower options)
-                       (rFun $ fRate options)
+      -- optimizer = adam 0.8 0.998 nFeats
+      optimizer = momentum (linear 0.5 0.9) nFeats
+      train     = trainPCD optimizer
+                           gen
+                           aopts
+                           trainPieces
+                           expTrain
+                           defaultFeaturesNamed
+                           (iterations options)
+                           (chainSize options)
+                           (resetRate options)
+                           (rFun $ fPower options)
+                           (rFun $ fRate options)
+                           (rFun $ fRateFast options)
   now                 <- getTime Monotonic
   ((model, chain), _) <- if null (logFp options)
     then ST.runStateT (train logger) (now, now)
     else withFile (logFp options) WriteMode $ \h -> ST.runStateT
-      (train $ logger <> logJSON fNames expTrain expTest stopCrit h)
+      (do
+        logJSONHeader h fNames options
+        train $ logger <> logJSON expTrain expTest stopCrit h
+      )
       (now, now)
   -- print model
   saveModel model "trained model" (show options) (modelFp options)

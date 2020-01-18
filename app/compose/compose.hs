@@ -18,6 +18,7 @@ import           VoiceLeading.Distribution      ( modelFeatures
                                                 )
 import           VoiceLeading.Helpers           ( RFun(..)
                                                 , rFun
+                                                , parseRead
                                                 )
 
 import           VoiceLeading.IO.Midi           ( corpusDir
@@ -75,18 +76,12 @@ defaultOpts = Opts { iterations = 20
                    , quiet      = False
                    }
 
-parseRead :: Read a => String -> Yaml.Value -> Yaml.Parser a
-parseRead expected = withText expected $ \v -> pure (read (T.unpack v))
-
 instance FromJSON PieceStart where
   parseJSON =
     parseRead "TestPiece | NewPiece INT | CorpusPiece NAME | File FILE"
 
 instance FromJSON ChoralVoice where
   parseJSON = parseRead "ChoralVoice"
-
-instance FromJSON RFun where
-  parseJSON = parseRead "RFun"
 
 instance FromJSON Opts where
   parseJSON = withObject "Opts" $ \v ->

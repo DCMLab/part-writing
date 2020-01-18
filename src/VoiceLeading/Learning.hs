@@ -360,8 +360,9 @@ data TrainingLogEntry = TLogEntry
                         }
 
 trainPCD
-  :: (Hashable v, Voice v, S.MonadAsync m)
-  => GenIO
+  :: (Hashable v, Voice v, S.MonadAsync m, Optimize o)
+  => o
+  -> GenIO
   -> AutoOpts v
   -> [Piece v]
   -> FeatureCounts
@@ -371,51 +372,123 @@ trainPCD
   -> Int
   -> (Double -> Double)
   -> (Double -> Double)
+  -> (Double -> Double)
   -> (TrainingLogEntry -> m ())
   -> m (Model v, [Piece v])
-trainPCD gen opts pieces expData features iterations chainSize restartEvery fPower fRate logger
+trainPCD optimizer gen opts pieces expData features iterations chainSize restartEvery fPower fRate fRateFast logger
   = do
     let feats   = V.fromList $ nfFeature <$> features
+        nFeats  = V.length feats
         featMap = featureMap voiceList features
-    -- initChain <- liftIO $ take chainSize . V.toList <$> uniformShuffle (V.fromList pieces) gen
-    let initChain = take chainSize pieces
-    let initParams = VU.replicate (length features) 0 -- alternative: normal 0 1 gen?
-        chainMetas = map pieceMeta initChain
-        chainCtxs  = map (mkDefaultCtx opts . keySignature) chainMetas
-        pVec       = pitchVector
-        vVec       = voiceVector
-        iterd      = fromIntegral iterations - 1
-        update (params, chain, it) = do
-          let progress = fromIntegral it / iterd
-              power    = fPower progress
-          chain' <- liftIO $ if restartEvery > 0 && it `mod` restartEvery == 0
-            then zipWithM (sampleZipper 0) chain chainCtxs
-            else pure chain
-          newChain <- zipWithM (sampleZipper power) chain' chainCtxs
-          let newChain' = zipWith extractPiece chainMetas newChain
-              expChain  = expectedFeats opts newChain' feats
-              gradient  = VU.zipWith (-) expData expChain
-              rate      = fRate progress
-              newParams = VU.zipWith (\p g -> p + rate * g) params gradient
-          logger $ TLogEntry it progress newParams gradient power rate expChain
-          pure (newParams, newChain, it + 1)
-         where
-          sampleZipper pw p c = liftIO $ gibbsStepNote (const (pVec, ()))
-                                                       ()
-                                                       vVec
-                                                       c
-                                                       p
-                                                       featMap
-                                                       params
-                                                       pw
-                                                       gen
+    initChain <-
+      liftIO
+      $   take chainSize
+      .   V.toList
+      <$> uniformShuffle (V.fromList pieces) gen
+    -- let initChain = take chainSize pieces
+    initParams <- VU.replicateM nFeats $ liftIO $ normal 0 0.1 gen
+    -- let initParams = VU.replicate nFeats 0 -- alternative: normal 0 1 gen?
+    let
+      initFastParams = VU.replicate nFeats 0 -- as per fast PCD
+      chainMetas     = map pieceMeta initChain
+      chainCtxs      = map (mkDefaultCtx opts . keySignature) chainMetas
+      pVec           = pitchVector
+      vVec           = voiceVector
+      iterd          = fromIntegral iterations - 1
+      update (params, fastParams, chain, it, opt) = do
+        let progress = fromIntegral it / iterd
+            power    = fPower progress
+        chain' <- liftIO $ if restartEvery > 0 && it `mod` restartEvery == 0
+          then zipWithM (sampleZipper 0) chain chainCtxs
+          else pure chain
+        newChain <- zipWithM (sampleZipper power) chain' chainCtxs
+        let
+          newChain'          = zipWith extractPiece chainMetas newChain
+          expChain           = expectedFeats opts newChain' feats
+          rawGradient        = VU.zipWith (-) expData expChain
+          rate               = fRate progress
+          (newOpt, gradient) = optimize opt progress rate rawGradient
+          rateFast           = fRateFast progress
+          newParams          = VU.zipWith (+) params gradient
+          newFastParams      = VU.zipWith
+            (\p g -> p * 0.95 + (rateFast / rate) * g)
+            fastParams
+            gradient
+        logger $ TLogEntry it progress newParams gradient power rate expChain
+        pure (newParams, fastParams, newChain, it + 1, newOpt)
+       where
+        paramsCombined = VU.zipWith (+) params fastParams
+        sampleZipper pw p c = liftIO $ gibbsStepNote (const (pVec, ()))
+                                                     ()
+                                                     vVec
+                                                     c
+                                                     p
+                                                     featMap
+                                                     paramsCombined
+                                                     pw
+                                                     gen
     liftIO $ putStrLn $ "chain info: " ++ show chainMetas
-    (finalParams, finalChain, _) <- iterateM
+    (finalParams, _, finalChain, _, _) <- iterateM
       iterations
       update
-      (initParams, map extendPiece initChain, 0)
+      (initParams, initFastParams, map extendPiece initChain, 0, optimizer)
     let chainPieces = zipWith extractPiece chainMetas finalChain
     pure (Model (V.fromList features) finalParams, chainPieces)
+
+----------------
+-- optimizers --
+----------------
+
+-- type Optimizer a = a -> Double -> Double -> ModelParams -> (a, ModelParams)
+
+class Optimize a where
+  optimize :: a -> Double -> Double -> ModelParams -> (a, ModelParams)
+
+-- no optimization
+------------------
+
+instance Optimize () where
+  optimize _ _ rate gradient = ((), VU.map (* rate) gradient)
+
+-- momentum
+-----------
+
+data Momentum = Momentum (Double -> Double) ModelParams
+
+instance Optimize Momentum where
+  optimize (Momentum fCoeff expAvg) progress rate gradient =
+    (Momentum fCoeff expAvg', expAvg')
+   where
+    coeff = fCoeff progress
+    mom avg grd = coeff * avg + rate * grd
+    expAvg' = VU.zipWith mom expAvg gradient
+
+momentum :: (Double -> Double) -> Int -> Momentum
+momentum f n = Momentum f $ VU.replicate n 0
+
+-- adam
+-------
+
+data Adam = Adam Double Double Double ModelParams ModelParams
+
+epsilon :: Double
+-- epsilon = 2 ** (-53)
+epsilon = 10 ** (-8)
+
+instance Optimize Adam where
+  optimize (Adam b1 b2 t ms vs) prog rate gradient =
+    (Adam b1 b2 (t + 1) ms' vs', gradient')
+   where
+    ms'       = VU.zipWith (\m g -> (b1 * m) + ((1 - b1) * g)) ms gradient
+    vs'       = VU.zipWith (\v g -> (b2 * v) + ((1 - b2) * g * g)) vs gradient
+    gradient' = VU.zipWith updt ms' vs'
+    updt m v = (rate / (sqrt vc + epsilon)) * mc
+     where
+      mc = m / (1 - b1 ** t)
+      vc = v / (1 - b2 ** t)
+
+adam :: Double -> Double -> Int -> Adam
+adam b1 b2 n = Adam b1 b2 1 zeros zeros where zeros = (VU.replicate n 0)
 
 -----------------------
 -- stopping criteria --

@@ -96,7 +96,7 @@ mkChord r pitches = VU.create $ do
 
 matchChordProfiles :: Profiles -> [Int] -> (Int, Double)
 matchChordProfiles _        []      = (0, 0)
-matchChordProfiles profiles pitches = (maxRoot, chordness)
+matchChordProfiles profiles pitches = (maxRoot, chordness / 0.3) -- normalize by maximum value
  where
   roots = V.fromListN 12 [0 .. 11]
   n     = fromIntegral $ length pitches
