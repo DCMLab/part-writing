@@ -21,6 +21,12 @@ import qualified Data.Colour.Palette.BrewerSet as K
 
 import           VoiceLeading.IO.HorizontalBars
 
+-- import qualified Plots                         as P
+-- import qualified Diagrams.Prelude              as D
+-- import           Diagrams.Backend.SVG           ( renderSVG
+--                                                 , B
+--                                                 )
+
 plotOverFeatures
   :: FilePath -> String -> V.Vector T.Text -> VU.Vector Double -> IO ()
 plotOverFeatures fp title names vals =
@@ -43,6 +49,19 @@ plotOverFeatures fp title names vals =
     plot_bars_values .= addIndexes values
     plot_bars_style .= BarsClustered
     plot_bars_spacing .= BarsFixGap 30 5
+
+-- plotOverFeatures
+--   :: FilePath -> String -> V.Vector T.Text -> VU.Vector Double -> IO ()
+-- plotOverFeatures fp title names vals = renderSVG fp D.absolute plotDia
+--  where
+--   height  = 20 * fromIntegral (V.length names)
+--   values  = zip (T.unpack <$> V.toList names) (VU.toList vals)
+--   -- plotDia :: P.Axis B D.V2 Double
+--   plotDia = P.renderAxis $ P.r2Axis &~ do
+--     P.axisSize .= D.dims2D 600 height
+--     -- P.scaleAspectRatio .= Nothing
+--     -- P.scaleMode .= P.NoScale
+--     P.namedBarPlot' values
 
 printOverFeatures
   :: FilePath -> String -> V.Vector T.Text -> VU.Vector Double -> IO ()

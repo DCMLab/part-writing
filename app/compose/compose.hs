@@ -7,18 +7,26 @@ import           VoiceLeading.Automaton         ( nfName
                                                 , AutoOpts(..)
                                                 )
 import           VoiceLeading.Inference         ( estimateGibbsNotes
-                                                , uniformRandomPiece'
-                                                , mapEstimateNotewise
+                                                , uniformRandomPiece
+                                                , randomizePiece
+                                                , InfLogger
                                                 )
 import           VoiceLeading.Distribution      ( modelFeatures
                                                 , meanLogPotential
                                                 , meanLogPotentialN
                                                 , meanFeatCounts
                                                 , meanFeatCountsN
+                                                , evalPieceUnnormLog
                                                 )
 import           VoiceLeading.Helpers           ( RFun(..)
                                                 , rFun
                                                 , parseRead
+                                                , defaultSeed
+                                                )
+import           VoiceLeading.Theory            ( loadProfiles
+                                                , vectorizeProfiles
+                                                , matchChordProfiles
+                                                , findHarm
                                                 )
 
 import           VoiceLeading.IO.Midi           ( corpusDir
@@ -38,10 +46,13 @@ import           Data.Yaml                     as Yaml
 import qualified Data.Text                     as T
 import           Control.Monad                  ( unless
                                                 , when
+                                                , replicateM
                                                 )
 import           Data.Default
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
+import qualified Data.Function.Memoize         as Mem
+import           System.Random.MWC              ( initialize )
 
 data PieceStart = TestPiece
                 | NewPiece Int
@@ -51,12 +62,13 @@ data PieceStart = TestPiece
 
 data Opts = Opts
   { iterations :: Int
+  , cooling    :: Double
+  , tempEnd    :: Double
   , startWith  :: PieceStart
   , keepVoices :: [ChoralVoice]
-  , fPower     :: RFun
+  , profileFp  :: FilePath
   , modelFp    :: FilePath
   , outputFp   :: FilePath
-  , diagramFp  :: FilePath
   , featuresFp :: FilePath
   , compareCrp :: Bool
   , comparePfx :: FilePath
@@ -64,12 +76,13 @@ data Opts = Opts
   deriving (Show)
 
 defaultOpts = Opts { iterations = 20
+                   , cooling    = 0.7
+                   , tempEnd    = 0.1
                    , startWith  = TestPiece
                    , keepVoices = []
-                   , fPower     = Cnst 5.0
+                   , profileFp  = "data/jsbach_chorals_harmony/profiles.json"
                    , modelFp    = "model.json"
                    , outputFp   = ""
-                   , diagramFp  = "diagram.pdf"
                    , featuresFp = "estimate_feats.pdf"
                    , compareCrp = False
                    , comparePfx = ""
@@ -90,23 +103,26 @@ instance FromJSON Opts where
       .:? "iterations"
       .!= (iterations defaultOpts)
       <*> v
+      .:? "cooling"
+      .!= (cooling defaultOpts)
+      <*> v
+      .:? "temp"
+      .!= (tempEnd defaultOpts)
+      <*> v
       .:? "start-with"
       .!= (startWith defaultOpts)
       <*> v
       .:? "keep-voices"
       .!= (keepVoices defaultOpts)
       <*> v
-      .:? "power"
-      .!= (fPower defaultOpts)
+      .:? "profiles"
+      .!= (profileFp defaultOpts)
       <*> v
       .:? "model"
       .!= (modelFp defaultOpts)
       <*> v
       .:? "output"
       .!= (outputFp defaultOpts)
-      <*> v
-      .:? "diagram-out"
-      .!= (diagramFp defaultOpts)
       <*> v
       .:? "feature-summary-out"
       .!= (featuresFp defaultOpts)
@@ -132,10 +148,28 @@ opts defs =
   Opts
     <$> argument
           auto
-          (  help "number of estimation iterations"
+          (  help "minimum number of estimation iterations"
           <> showDefault
           <> value (iterations defs)
           <> metavar "iterations"
+          )
+    <*> option
+          auto
+          (  long "cooling"
+          <> short 'k'
+          <> help "cooling factor (between 0 and 1)"
+          <> showDefault
+          <> value (cooling defs)
+          <> metavar "(0,1]"
+          )
+    <*> option
+          auto
+          (  long "temp-end"
+          <> short 't'
+          <> help "target temperature"
+          <> showDefault
+          <> value (tempEnd defs)
+          <> metavar "Double"
           )
     <*> option
           auto
@@ -150,21 +184,20 @@ opts defs =
     <*> option
           auto
           (  long "keep-voices"
-          <> short 'k'
+          <> short 'v'
           <> help
                "keep these voices from the initial piece (comma separated in \"[]\")"
           <> showDefault
           <> value (keepVoices defs)
           <> metavar "\"[(Soprano|Alto|Tenor|Bass)*]\""
           )
-    <*> option
-          auto
-          (  long "power"
-          <> short 'p'
-          <> help "the value of the annealing power (over time)"
+    <*> strOption
+          (  long "chord-profile"
+          <> short 'P'
+          <> help "the file from which to read the chord profiles"
           <> showDefault
-          <> value (fPower defs)
-          <> metavar "RFUN"
+          <> value (profileFp defs)
+          <> metavar "FILE"
           )
     <*> strOption
           (  long "model"
@@ -181,14 +214,6 @@ opts defs =
                "LilyPond filename of final composition. If empty, a temporary file will be used."
           <> showDefault
           <> value (outputFp defs)
-          <> metavar "FILE"
-          )
-    <*> strOption
-          (  long "diagram-out"
-          <> short 'd'
-          <> help "filename for the model diagram"
-          <> showDefault
-          <> value (diagramFp defs)
           <> metavar "FILE"
           )
     <*> strOption
@@ -216,37 +241,86 @@ optsInfo defs = info
   (opts defs <**> helper)
   (fullDesc <> progDesc "Compose a piece by MAP estimation")
 
+-- logging
+----------
+
+consoleLogger :: InfLogger IO
+consoleLogger it pot temp dC dS =
+  putStrLn
+    $  "k = "
+    <> show it
+    <> "\tpot = "
+    <> show pot
+    <> "\ttemp = "
+    <> show temp
+    <> "\tdC = "
+    <> show dC
+    <> "\tdS = "
+    <> show dS
+
+-- main
+-------
+
 main :: IO ()
 main = do
-  defs    <- loadConfig "defaults.yaml"
+  -- random state
+  gen     <- initialize defaultSeed -- for reproducability
+
   -- read options
+  defs    <- loadConfig "defaults.yaml"
   options <- execParser $ optsInfo defs
-  putStrLn $ show options
+  print options
   let q = quiet options
 
   -- load model and plot its parameters
   model <- loadModel $ modelFp options
   let mfNames = nfName <$> modelFeatures model
-  unless (q || null (diagramFp options))
-    $ plottingLogger (diagramFp options) model
 
   -- load / generate initial piece
-  piece <- case (startWith options) of
+  loadedPiece <- case startWith options of
     TestPiece       -> testPiece
-    NewPiece    len -> uniformRandomPiece' len
+    NewPiece    len -> uniformRandomPiece len gen
     CorpusPiece fp  -> loadMidi $ corpusDir ++ fp
     File        fp  -> loadMidi fp
+  piece      <- randomizePiece gen (keepVoices options) loadedPiece
 
-  let aopts = def -- TODO: change harmony estimator
+  -- load chord profiles
+  (Just pfs) <- loadProfiles $ profileFp options
+  let profiles = vectorizeProfiles pfs
+      harmEst  = Mem.memoize $ matchChordProfiles profiles
+      aopts    = def { oHarmEstimator = harmEst }
+
+  -- initial temperature (t0)
+  let nSamples = 20 -- number of comparison samples for initial temperature
+  randomSteps <- replicateM nSamples
+    $ randomizePiece gen (keepVoices options) piece
+  let meanC =
+        sum ((\p -> abs $ evalPieceUnnormLog aopts p model) <$> randomSteps)
+          / fromIntegral nSamples
+      t0 :: Double
+      t0   = negate $ meanC / log 0.999
+      tEnd = tempEnd options
+      kA   = cooling options
+
+
+  -- logging
+  let logger = consoleLogger
 
   -- MAP estimation
-  est' <- estimateGibbsNotes aopts
+  est' <- estimateGibbsNotes gen
+                             aopts
                              (keepVoices options)
                              piece
                              model
+                             t0
+                             tEnd
+                             kA
                              (iterations options)
-                             (rFun $ fPower options)
-  est <- mapEstimateNotewise aopts (Just est') model 0 (keepVoices options)
+                             10
+                             logger
+  -- TODO: fix broken maximization
+  -- est <- mapEstimateNotewise aopts (Just est') model 0 (keepVoices options)
+  let est = est'
 
   -- plot summary of estimated piece 
   putStrLn $ "logpot/event estimate: " ++ show

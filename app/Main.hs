@@ -30,39 +30,39 @@ import           Data.Ord                       ( comparing )
 
 -- cp1 = zipWith joinVoices cantus fstCP
 
-main1 :: IO ()
-main1 = do
-  model <- loadModel "model.json"
-  let mfNames = nfName <$> modelFeatures model
-  plottingLogger "diagram.pdf" model
-  -- (est,score) <- bestEstimate (replicateM 10 $ mapEstimateNotewise Nothing model 11 []) model
-  piece <- testPiece
-  let aopts = def
-  est <- estimateGibbsNotes aopts [Soprano, Bass] piece model 20 (const 5.0)
-  putStrLn $ "logpot/event estimate: " ++ show
-    (meanLogPotential aopts est model)
-  let avgFEst = meanFeatCounts aopts est model
-  plotOverFeatures "estimate_feats.pdf"
-                   "Mean Feature Values (MAP Estimate)"
-                   mfNames
-                   avgFEst
-  ps <- corpusPieces
-  putStrLn $ "logpot/event corpus: " ++ show (meanLogPotentialN aopts ps model)
-  let avgFCorp = meanFeatCountsN aopts ps model
-  plotOverFeatures "corpus_feats.pdf"
-                   "Mean Feature Values (Corpus)"
-                   mfNames
-                   avgFCorp
-  let avgFDiff = VU.map log $ VU.zipWith (/) avgFEst avgFCorp
-  printOverFeatures "relative_feats.pdf"
-                    "Mean Feature Values (Estimate/Corpus)"
-                    mfNames
-                    avgFDiff
-  plotOverFeatures "relative_feats.pdf"
-                   "Mean Feature Values (Estimate/Corpus)"
-                   mfNames
-                   avgFDiff
-  viewPieceTmp est
+-- main1 :: IO ()
+-- main1 = do
+--   model <- loadModel "model.json"
+--   let mfNames = nfName <$> modelFeatures model
+--   plottingLogger "diagram.pdf" model
+--   -- (est,score) <- bestEstimate (replicateM 10 $ mapEstimateNotewise Nothing model 11 []) model
+--   piece <- testPiece
+--   let aopts = def
+--   est <- estimateGibbsNotes aopts [Soprano, Bass] piece model 20 (const 5.0)
+--   putStrLn $ "logpot/event estimate: " ++ show
+--     (meanLogPotential aopts est model)
+--   let avgFEst = meanFeatCounts aopts est model
+--   plotOverFeatures "estimate_feats.pdf"
+--                    "Mean Feature Values (MAP Estimate)"
+--                    mfNames
+--                    avgFEst
+--   ps <- corpusPieces
+--   putStrLn $ "logpot/event corpus: " ++ show (meanLogPotentialN aopts ps model)
+--   let avgFCorp = meanFeatCountsN aopts ps model
+--   plotOverFeatures "corpus_feats.pdf"
+--                    "Mean Feature Values (Corpus)"
+--                    mfNames
+--                    avgFCorp
+--   let avgFDiff = VU.map log $ VU.zipWith (/) avgFEst avgFCorp
+--   printOverFeatures "relative_feats.pdf"
+--                     "Mean Feature Values (Estimate/Corpus)"
+--                     mfNames
+--                     avgFDiff
+--   plotOverFeatures "relative_feats.pdf"
+--                    "Mean Feature Values (Estimate/Corpus)"
+--                    mfNames
+--                    avgFDiff
+--   viewPieceTmp est
 
 main2 = do
   pieces <- corpusPieces

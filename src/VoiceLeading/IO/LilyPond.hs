@@ -79,7 +79,7 @@ pieceToLy' :: Voice v => Piece v -> L.Music
 pieceToLy' p@(Piece meta _) = L.New "StaffGroup" Nothing
   $ L.Simultaneous False staves
  where
-  vs     = voiceList
+  vs     = reverse voiceList
   staves = map (L.New "Staff" Nothing . voiceToLy p) vs
 
 voiceToLy :: Voice v => Piece v -> v -> L.Music

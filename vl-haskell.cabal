@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 53e5bb7d712bae299b029422756015f2307088dc640c2e766ddfbc50ff322a82
+-- hash: 43e216a8bba1e65f6fb39a683f1aebc25b5907d0d6790561bf2b40fb3508f39a
 
 name:           vl-haskell
 version:        0.1.0
@@ -72,6 +72,8 @@ library
 
 executable vl-compose
   main-is: compose.hs
+  other-modules:
+      Paths_vl_haskell
   hs-source-dirs:
       app/compose
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
@@ -162,6 +164,8 @@ executable vl-haskell-exe
 
 executable vl-rate
   main-is: rate.hs
+  other-modules:
+      Paths_vl_haskell
   hs-source-dirs:
       app/rate
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
@@ -205,6 +209,8 @@ executable vl-rate
 
 executable vl-train
   main-is: train.hs
+  other-modules:
+      Paths_vl_haskell
   hs-source-dirs:
       app/train
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
@@ -250,6 +256,8 @@ executable vl-train
 
 executable vl-view-model
   main-is: view-model.hs
+  other-modules:
+      Paths_vl_haskell
   hs-source-dirs:
       app/view-model
   ghc-options: -threaded -rtsopts -with-rtsopts=-N

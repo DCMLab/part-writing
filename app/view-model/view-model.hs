@@ -23,9 +23,7 @@ opts :: Parser Opts
 opts =
   Opts
     <$> strArgument (help "input filename" <> metavar "INPUT")
-    <*> strArgument
-          (help "output filename" <> showDefault <> value "" <> metavar "OUTPUT"
-          )
+    <*> strArgument (help "output filename" <> metavar "OUTPUT")
     <*> switch
           (long "stdout" <> short 's' <> help
             "write output to stdout (implies -q, only for lilypond)"
@@ -41,7 +39,7 @@ main :: IO ()
 main = do
   options <- execParser optsInfo
   doc     <- loadDoc $ inputFp options
-  pure ()
+  exportDoc (outputFp options) doc
 
 
 data Document v = DocPiece (Piece v)

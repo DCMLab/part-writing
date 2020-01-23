@@ -18,6 +18,8 @@ dependencies:
   - containers
   - data-default
   - deepseq
+  # - diagrams-lib
+  # - diagrams-svg
   - directory
   - filepath
   - ghc
@@ -32,6 +34,7 @@ dependencies:
   - mtl
   - mwc-random
   - palette
+  # - plots
   - prettify
   - primitive
   - process

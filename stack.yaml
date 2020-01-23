@@ -48,7 +48,6 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
 # - Chart-1.9
-- streamly-0.7.0@sha256:2a510275b3a41f1e50d8f45f8dac879933139652509dd6cd98b69a5d24e9c55d,31563
 - Chart-cairo-1.9.1@sha256:85605a4663f319e482bbd208c1e44c3cc8e0ec094fcd41b6afa3db4ce60635b0,925
 - cairo-0.13.8.0@sha256:9b64a376ebaa4f153bba5866a32291fd4bed48147009cce9158ce6533928eba8,4075
 - gtk2hs-buildtools-0.13.8.0@sha256:132f38155fc677430a47ea750918973161c876fb6f281d342ac2f07eb99229ce,5238
@@ -56,7 +55,9 @@ extra-deps:
 - music-dynamics-literal-1.9.0
 - music-pitch-literal-1.9.0
 - lilypond-1.9.0
+# - plots-0.1.1.2@sha256:01f2ba7ca0c1e00b5231a81b44a3b8b9fd21b49bc333ff4cef880e31c5332935,2034
 - prettify-1.0
+- streamly-0.7.0@sha256:2a510275b3a41f1e50d8f45f8dac879933139652509dd6cd98b69a5d24e9c55d,31563
 # - terminal-progress-bar-0.4.0.1
 # - Chart-gtk-1.8.2
 
