@@ -297,7 +297,7 @@ logShort (TLogEntry it progr _ gradient power rate _) = do
     it
     progr
     old
-    diff
+    now
     power
     rate
     (normU gradient)
@@ -319,8 +319,6 @@ logJSON train test stopCrit h (TLogEntry it prog params gradient power rate chai
           , "grad_norm" .= normU gradient
           , "power" .= power
           , "rate" .= rate
-          -- , "time" .= ts
-          -- , "duration" .= to
           , "cdTrain" .= cdTrain
           , "cdTest" .= cdTest
           , "stopCrit" .= stopCrit params
@@ -330,9 +328,8 @@ logJSON train test stopCrit h (TLogEntry it prog params gradient power rate chai
   -- model = object $ V.toList $ V.zipWith (.=) names (V.convert params)
 
 logJSONHeader :: Handle -> V.Vector T.Text -> Opts -> LogAction
-logJSONHeader h names options = do
-  ST.lift $ B.hPut h $ encodePretty $ object
-    ["features" .= names, "options" .= options]
+logJSONHeader h names options = ST.lift $ B.hPut h $ encodePretty $ object
+  ["features" .= names, "options" .= options]
 
 main :: IO ()
 main = do
