@@ -26,6 +26,7 @@ import           VoiceLeading.Distribution      ( evalModelUnnormLog
                                                 , sumFeaturesM
                                                 , ModelParams
                                                 , FeatureCounts
+                                                , Model(..)
                                                 )
 import           VoiceLeading.Helpers           ( normU
                                                 , RFun(..)
@@ -48,7 +49,7 @@ import           Data.Semigroup                 ( (<>)
                                                 , Semigroup(..)
                                                 )
 import           Control.DeepSeq                ( deepseq )
-import           Control.Monad                  ( unless )
+import           Control.Monad                  ( when )
 import qualified Control.Monad.State           as ST
 import           Control.Monad.IO.Class         ( liftIO )
 import           System.IO                      ( stdout
@@ -70,6 +71,7 @@ import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Function.Memoize         as Mem
 import qualified Data.Text                     as T
+import           Data.Maybe                     ( fromMaybe )
 import           GHC.Generics                   ( Generic )
 
 data Opts = Opts
@@ -86,7 +88,7 @@ data Opts = Opts
   , diagramFp :: FilePath
   , gradientFp :: FilePath
   , logFp :: FilePath
-  , hideChain :: Bool }
+  , showChain :: Bool }
   deriving (Show, Read, Eq, Generic)
 
 instance ToJSON Opts where
@@ -209,16 +211,20 @@ opts =
           <> metavar "FILE"
           )
     <*> switch
-          (long "hide-chain" <> short 'q' <> help
-            "don't show the last samples of the PCD chain"
-          )
+          (long "show-chain" <> help "show the last samples of the PCD chain")
 
 optsInfo :: ParserInfo Opts
 optsInfo = info
   (opts <**> helper)
   (fullDesc <> progDesc "Train model parameters from the corpus")
 
-type LogAction = ST.StateT (TimeSpec, TimeSpec) IO ()
+data LogState = LogState { lsStart :: TimeSpec
+                         , lsOld :: TimeSpec
+                         , lsESMax :: Maybe Double
+                         , lsESBest :: Maybe ModelParams }
+                deriving (Show)
+
+type LogAction = ST.StateT LogState IO ()
 type Logger = TrainingLogEntry -> LogAction
 
 (<+>) :: Logger -> Logger -> Logger
@@ -237,6 +243,7 @@ stdLogger names train test stopCrit fpParams fpGrad =
     <+> logGrad names fpGrad
     <+> logShort
     <+> logObjective train test stopCrit
+    <+> logBest stopCrit
 
 logParams :: V.Vector T.Text -> FilePath -> Logger
 logParams names fp (TLogEntry _ _ params _ _ _ _) =
@@ -273,13 +280,23 @@ logObjective train test stopCrit (TLogEntry _ _ params _ _ _ chain) =
     <> show (stopCrit params)
   where (cdTrain, cdTest) = evalObjective params train test chain
 
+logBest :: (ModelParams -> Double) -> Logger
+logBest stopCrit (TLogEntry _ _ params _ _ _ _) = do
+  let crit = stopCrit params
+  lstate <- ST.get
+  when (maybe True (crit >) $ lsESMax lstate) $ ST.put $ lstate
+    { lsESMax  = Just crit
+    , lsESBest = Just params
+    }
+
 logShort :: Logger
 logShort (TLogEntry it progr _ gradient power rate _) = do
-  now          <- ST.lift $ getTime Monotonic
-  (start, old) <- ST.get
-  ST.put (start, now)
-  let diff = diffTimeSpec now old
+  now    <- ST.lift $ getTime Monotonic
+  lstate <- ST.get
+  let old  = lsOld lstate
+      diff = diffTimeSpec now old
       lf pad prec = left pad ' ' %. f prec
+  ST.put $ lstate { lsOld = now }
   ST.lift $ fprint
     ( (left 4 ' ' %. int)
     % " ("
@@ -338,9 +355,10 @@ main = do
   options <- execParser optsInfo
   -- putStrLn $ show options
 
-  let feats  = V.fromList $ nfFeature <$> defaultFeaturesNamed
-      fNames = V.fromList $ nfName <$> defaultFeaturesNamed
-      nFeats = V.length feats
+  let featuresNamed = V.fromList defaultFeaturesNamed
+      feats         = nfFeature <$> featuresNamed
+      fNames        = nfName <$> featuresNamed
+      nFeats        = V.length featuresNamed
 
   (Just pfs) <- loadProfiles $ profileFp options
   let profiles = vectorizeProfiles pfs
@@ -366,14 +384,14 @@ main = do
 
   liftIO $ expTrain `deepseq` expTest `deepseq` putStrLn "done."
 
-  let scale = 0 -- fromIntegral $ maximum $ pieceLen <$> pieces
-      stopCrit params = stoppingXi scale countsTrain countsNbh params
-      logger = stdLogger fNames
-                         expTrain
-                         expTest
-                         stopCrit
-                         (diagramFp options)
-                         (gradientFp options)
+  let scale    = 0 -- fromIntegral $ maximum $ pieceLen <$> pieces
+      stopCrit = stoppingXi scale countsTrain countsNbh
+      logger   = stdLogger fNames
+                           expTrain
+                           expTest
+                           stopCrit
+                           (diagramFp options)
+                           (gradientFp options)
       -- optimizer = adam 0.8 0.998 nFeats
       optimizer = momentum (linear 0.5 0.9) nFeats
       train     = trainPCD optimizer
@@ -388,15 +406,17 @@ main = do
                            (rFun $ fPower options)
                            (rFun $ fRate options)
                            (rFun $ fRateFast options)
-  now                 <- getTime Monotonic
-  ((model, chain), _) <- if null (logFp options)
-    then ST.runStateT (train logger) (now, now)
+  now <- getTime Monotonic
+  let logState0 = LogState now now Nothing Nothing
+  ((lastModel, chain), lsFinal) <- if null (logFp options)
+    then ST.runStateT (train logger) logState0
     else withFile (logFp options) WriteMode $ \h -> ST.runStateT
       (do
         logJSONHeader h fNames options
         train $ logger <+> logJSON expTrain expTest stopCrit h
       )
-      (now, now)
-  -- print model
+      logState0
+  let model = maybe lastModel (Model featuresNamed) (lsESBest lsFinal)
+  print $ lsESMax lsFinal
   saveModel model "trained model" (show options) (modelFp options)
-  unless (hideChain options) $ mapM_ viewPieceTmp chain
+  when (showChain options) $ mapM_ viewPieceTmp chain
