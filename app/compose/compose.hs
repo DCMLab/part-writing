@@ -3,9 +3,8 @@
 module Main where
 
 import           VoiceLeading.Base
-import           VoiceLeading.Automaton         ( nfName
-                                                , AutoOpts(..)
-                                                )
+import           VoiceLeading.Automaton         ( AutoOpts(..) )
+import           VoiceLeading.Features          ( nfName )
 import           VoiceLeading.Inference         ( estimateGibbsNotes
                                                 , uniformRandomPiece
                                                 , randomizePiece
@@ -18,15 +17,12 @@ import           VoiceLeading.Distribution      ( modelFeatures
                                                 , meanFeatCountsN
                                                 , evalPieceUnnormLog
                                                 )
-import           VoiceLeading.Helpers           ( RFun(..)
-                                                , rFun
-                                                , parseRead
+import           VoiceLeading.Helpers           ( parseRead
                                                 , defaultSeed
                                                 )
 import           VoiceLeading.Theory            ( loadProfiles
                                                 , vectorizeProfiles
                                                 , matchChordProfiles
-                                                , findHarm
                                                 )
 
 import           VoiceLeading.IO.Midi           ( corpusDir
@@ -43,13 +39,11 @@ import           VoiceLeading.IO.Model          ( loadModel )
 import           Options.Applicative           as OA
 import           Data.Semigroup                 ( (<>) )
 import           Data.Yaml                     as Yaml
-import qualified Data.Text                     as T
 import           Control.Monad                  ( unless
                                                 , when
                                                 , replicateM
                                                 )
 import           Data.Default
-import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Function.Memoize         as Mem
 import           System.Random.MWC              ( initialize )
@@ -75,6 +69,7 @@ data Opts = Opts
   , quiet      :: Bool }
   deriving (Show)
 
+defaultOpts :: Opts
 defaultOpts = Opts { iterations = 20
                    , cooling    = 0.7
                    , tempEnd    = 0.1
@@ -92,9 +87,6 @@ defaultOpts = Opts { iterations = 20
 instance FromJSON PieceStart where
   parseJSON =
     parseRead "TestPiece | NewPiece INT | CorpusPiece NAME | File FILE"
-
-instance FromJSON ChoralVoice where
-  parseJSON = parseRead "ChoralVoice"
 
 instance FromJSON Opts where
   parseJSON = withObject "Opts" $ \v ->
@@ -237,6 +229,7 @@ opts defs =
           )
     <*> switch (long "no-plots" <> short 'q' <> help "don't write plot files")
 
+optsInfo :: Opts -> ParserInfo Opts
 optsInfo defs = info
   (opts defs <**> helper)
   (fullDesc <> progDesc "Compose a piece by MAP estimation")
@@ -352,6 +345,6 @@ main = do
                        avgFDiff
 
   -- view the generated piece
-  if (null $ outputFp options)
+  if null $ outputFp options
     then viewPieceTmp est
     else viewPiece est (outputFp options)

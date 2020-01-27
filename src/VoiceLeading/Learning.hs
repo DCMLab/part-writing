@@ -5,26 +5,20 @@ module VoiceLeading.Learning where
 
 import           VoiceLeading.Base
 import           VoiceLeading.Automaton
+import           VoiceLeading.Features
 import           VoiceLeading.Distribution
 import           VoiceLeading.Helpers           ( lGet
-                                                , replaceHead
                                                 , safeInit
                                                 , iterateM
+                                                , chooseRandom
                                                 )
 
-import           Data.List                      ( transpose
-                                                , tails
-                                                , foldl1'
-                                                , scanl'
-                                                )
+import           Data.List                      ( scanl' )
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Map.Strict               as M
-import qualified Data.Text                     as T
 import           System.Random.MWC              ( GenIO
-                                                , Gen(..)
-                                                , createSystemRandom
-                                                , uniform
+                                                , Gen
                                                 )
 import           System.Random.MWC.Distributions
                                                 ( normal
@@ -36,9 +30,7 @@ import           Control.Monad.Primitive        ( PrimMonad
                                                 , PrimState
                                                 )
 import           Control.Monad                  ( foldM
-                                                , replicateM
                                                 , zipWithM
-                                                , when
                                                 )
 import           Control.Monad.IO.Class         ( MonadIO(..) )
 import           Data.Bifunctor                 ( first
@@ -47,16 +39,6 @@ import           Data.Bifunctor                 ( first
 import qualified Streamly                      as S
 import qualified Streamly.Prelude              as S
 
-import           Control.DeepSeq                ( deepseq
-                                                , force
-                                                )
-import           System.Mem                     ( performGC )
-
-import           Debug.Trace                   as DT
-import           Data.Hashable                  ( Hashable
-                                                , hash
-                                                )
-import           Data.Traversable               ( mapAccumL )
 import           MonadUtils                     ( mapAccumLM )
 
 --------------------
@@ -66,11 +48,8 @@ import           MonadUtils                     ( mapAccumLM )
 -- event-wise
 -------------
 
-eventVector :: forall  v . Voice v => V.Vector (Event v)
-eventVector = V.fromList eventList
-
-lookaheadV :: Voice v => [EEvent v] -> v -> Int
-lookaheadV evs v = laGo evs v 1 1
+lookahead :: Voice v => [EEvent v] -> v -> Int
+lookahead events v = laGo events v 1 1
  where
   laGo [] _ _ num = num
   laGo (ev : evs) voice moves num
@@ -80,129 +59,8 @@ lookaheadV evs v = laGo evs v 1 1
     ev' = extract ev
     incV i = if pitchHolds (evGet ev' voice) then i else i + 1
 
-lookahead :: forall  v . Voice v => [EEvent v] -> Int
-lookahead [] = 0
-lookahead (_ : evs) =
-  let vl = voiceList :: [v] in maximum $ map (lookaheadV evs) vl
-
 extendLike' :: Event v -> EEvent v -> EEvent v
 extendLike' (Event m _) (EEvent _ b f l) = EEvent m b f l
-
-evKernel
-  :: (MonadIO m, Voice v)
-  => V.Vector (Event v)
-  -> ()
-  -> State v
-  -> [EEvent v]
-  -> Context v
-  -> Model v
-  -> Double
-  -> GenIO
-  -> m (EEvent v, State v, ())
-evKernel evVec _ state (orig : evs) ctx model power gen = do
-  liftIO $ putStrLn $ "evKernel: " ++ show (extract orig)
-  liftIO $ putStrLn $ "lookahead: " ++ show lka
-  liftIO $ putStrLn $ "options: " ++ show (V.length evVec)
-  liftIO $ putStrLn "\nsampling from proposal distribution"
-  i <- liftIO $ categorical qualities gen
-  liftIO $ putStrLn "done"
-  let ev = evVec V.! i
-  pure $! (extendLike ev orig, nextState state ev, ())
- where
-  lka     = lookahead evs
-  section = take lka evs
-  sectevs = map extract section
-  feats   = nfFeature <$> modelFeatures model
-  params  = modelParams model
-  propose ev = evalModelUnnorm counts params ** power
-   where
-    states = scanl' nextState state (ev : init sectevs)
-    eev    = extendLike' ev orig
-    fs     = runFeaturesOnEEvs (eev : section) states ctx feats
-    counts = sumFeaturesP feats fs
-  qualities = V.map propose evVec
-
-evKernelEvs
-  :: (MonadIO m, Voice v)
-  => (s -> EEvent v -> State v -> (V.Vector (Event v), s))
-  -> s
-  -> State v
-  -> [EEvent v]
-  -> Context v
-  -> Model v
-  -> Double
-  -> GenIO
-  -> m (EEvent v, State v, s)
-evKernelEvs getEvs kst state evs@(ev : _) ctx model power gen = do
-  (ev', st', _) <- evKernel evVec () state evs ctx model power gen
-  return (ev', st', kst')
-  where (evVec, kst') = getEvs kst ev state
-
-gibbsStepEv
-  :: (Monad m, Voice v)
-  => (  a
-     -> State v
-     -> [EEvent v]
-     -> Context v
-     -> Model v
-     -> Double
-     -> GenIO
-     -> m (EEvent v, State v, a)
-     )
-  -> a
-  -> [EEvent v]
-  -> Context v
-  -> Model v
-  -> Double
-  -> GenIO
-  -> m [EEvent v]
-gibbsStepEv kernel kinit evs ctx model power gen = do
-  -- putStrLn $ "gibbsStep: evs = " ++ show (take 1 (tails evs))
-  newEvs <- evScanGo (return (undefined, firstState, kinit)) (init $ tails evs)
-  pure $ tail newEvs
- where
-  sampleEv state evs kst = kernel kst state evs ctx model power gen
-  evScanGo acc evss = do
-    (accev, accst, kst) <- acc
-    rest                <-
-      (case evss of
-        []          -> pure []
-        evs : revss -> evScanGo (sampleEv accst evs kst) revss
-      )
-    pure $ accev : rest
-
-gibbsStepEvAll
-  :: (MonadIO m, Voice v)
-  => [EEvent v]
-  -> Context v
-  -> Model v
-  -> Double
-  -> GenIO
-  -> m [EEvent v]
-gibbsStepEvAll = gibbsStepEv (evKernel eventVector) ()
-
--- gibbsEvAllPiece1 :: AutoOpts ChoralVoice -> Piece ChoralVoice -> IO (Piece ChoralVoice)
--- gibbsEvAllPiece1 opts p@(Piece meta _) = do
---   gen <- createSystemRandom
---   p1 <- normal 0 1 gen
---   p2 <- normal 0 1 gen
---   let model = Model testFeaturesNamed [p1, p2]
---   newEvs <- gibbsStepEvAll evs ctx model 1 gen
---   return $ Piece meta (map extract newEvs)
---   where ctx = mkDefaultCtx opts (keySignature meta)
---         evs = extendPiece p
-
--- gibbsEvAll1 :: AutoOpts ChoralVoice -> Piece ChoralVoice -> IO (EEvent ChoralVoice, State ChoralVoice)
--- gibbsEvAll1 opts piece = do
---   gen <- createSystemRandom
---   p1 <- normal 0 1 gen
---   p2 <- normal 0 1 gen
---   let model = Model testFeaturesNamed [p1, p2]
---       evVec = eventVector
---   (ev, st, _) <- evKernel evVec () firstState evs ctx model 1 gen
---   return (ev, st)
---   where ctx = mkDefaultCtx opts (keySignature (pieceMeta piece))
---         evs = extendPiece piece
 
 -- note-wise
 ------------
@@ -239,31 +97,26 @@ gibbsStepNote
   -> Double
   -> GenIO
   -> IO [EEvent v]
-gibbsStepNote fpVec fpInit vVec ctx evs featMap params power gen = do
-  newEvs <- evScanGo (return (undefined, firstState)) (init $ tails evs) fpInit
-  pure $ tail newEvs
+gibbsStepNote fpVec fpInit vVec ctx events featMap params power gen = evScanGo
+  []
+  firstState
+  events
+  fpInit
  where
-  feats =
-    M.map (\(vfeats, inds) -> (vfeats, VU.map (params VU.!) inds)) featMap
-  sampleEv !state !es !pVec = noteKernel state es ctx feats power gen pVec vVec
-  evScanGo !acc !evss !fpState = do
-    (accev, accst) <- acc
+  feats = M.map (second $ VU.map (params VU.!)) featMap
+  sampleEv !state !ev !evs !pVec =
+    noteKernel state ev evs ctx feats power gen pVec vVec
+  evScanGo acc  _   []         _        = pure $ reverse acc
+  evScanGo !acc !st (ev : evs) !fpState = do
     let (pVec, fpSt') = fpVec fpState
-    rest <- case evss of
-      []         -> pure []
-      es : revss -> evScanGo (sampleEv accst es pVec) revss fpSt'
-    pure $ accev : rest
-
--- gibbsStepNote' :: (Voice v) =>
---   Context v -> [EEvent v] -> Model v -> Double -> GenIO -> IO [EEvent v]
--- gibbsStepNote' = gibbsStepNote (const (pVec,())) () vVec
---   where pVec = pitchVector
---         vVec = V.fromList voiceList
+    (ev', st') <- sampleEv st ev evs pVec
+    evScanGo (ev' : acc) st' evs fpSt'
 
 noteKernel
   :: forall v
    . Voice v
   => State v
+  -> EEvent v
   -> [EEvent v]
   -> Context v
   -> M.Map v (V.Vector (Feature v), VU.Vector Double)
@@ -272,10 +125,10 @@ noteKernel
   -> V.Vector Pitch
   -> V.Vector v
   -> IO (EEvent v, State v)
-noteKernel state (orig : evs) ctx model power gen pVec vVec = do
+noteKernel state orig evs ctx model power gen pVec vVec = do
   voices <- V.toList <$> uniformShuffle vVec gen
   ev     <- foldM sampleNote (extract orig) voices
-  pure $! (extendLike ev orig, nextState state ev)
+  pure (extendLike ev orig, nextState state ev)
  where
   sampleNote :: Event v -> v -> IO (Event v)
   sampleNote event voice = do
@@ -286,7 +139,7 @@ noteKernel state (orig : evs) ctx model power gen pVec vVec = do
     feats   = fst $ model M.! voice
     params  = snd $ model M.! voice
     -- prepare successor events
-    lka     = lookaheadV evs voice -- lookahead
+    lka     = lookahead evs voice -- lookahead
     sectext = take lka evs -- section of extended events to look at
     sect    = map extract sectext -- extracted sect
     -- prepare proposal events
@@ -295,7 +148,7 @@ noteKernel state (orig : evs) ctx model power gen pVec vVec = do
     evVec' = V.map mkEv pVec -- try all possible pitches
     prevp  = lGet (M.findWithDefault [] voice (sPrevPitch state)) 0 -- previous pitch
     evVec  = case prevp of -- if preceded by pitch, add holding variant
-      Just (Pitch i _) -> evVec' `V.snoc` (mkEv $ Pitch i True)
+      Just (Pitch i _) -> evVec' `V.snoc` mkEv (Pitch i True)
       _                -> evVec'
     propose ev = do
       counts <- sumFeaturesM feats fs
@@ -304,50 +157,12 @@ noteKernel state (orig : evs) ctx model power gen pVec vVec = do
       sect'  = scanl1 (normalizeTiesScanner False) (ev : sect) -- correct ties
       sectx' = zipWith extendLike sect' (orig : sectext) -- also in extended section
       states = scanl' nextState state (safeInit sect')
-      fs     = runFeaturesOnEEvs sectx' states ctx feats -- TODO: optimize
+      fs     = runFeaturesOnEEvs sectx' states ctx feats
     qualStr = S.aheadly $ S.mapM propose $ S.fromFoldable $ V.force evVec
-
--- gibbsNotePiece1 :: AutoOpts ChoralVoice -> Piece ChoralVoice -> IO (Piece ChoralVoice)
--- gibbsNotePiece1 opts p@(Piece meta _) = do
---   gen <- createSystemRandom
---   params <- V.fromList <$> replicateM (length feats) (normal 0 10 gen)
---   putStrLn $ "params: " ++ show params
---   let model = Model feats params
---   newEvs <- gibbsStepNote' ctx evs model 1.0 gen
---   return $ Piece meta (map extract newEvs)
---   where ctx = mkDefaultCtx opts (keySignature meta)
---         evs = extendPiece p
---         feats = V.fromList defaultFeaturesNamed
-
--- gibbsNote1 :: AutoOpts ChoralVoice -> Piece ChoralVoice -> IO (EEvent ChoralVoice, State ChoralVoice)
--- gibbsNote1 opts piece = do
---   gen <- createSystemRandom
---   p1 <- normal 0 1 gen
---   p2 <- normal 0 1 gen
---   let model = Model testFeaturesNamed [p1, p2]
---       pVec = pitchVector
---       vVec = V.fromList voiceList
---       featpar = zip (modelFeatures model) (modelParams model)
---       featv v = (v, unzip $ map (\(f,p) -> (nfFeature f, p)) $
---                     filter (\(f,_) -> v `elem` nfVoices f) featpar)
---       feats = M.fromList $ map featv voiceList
---   noteKernel firstState evs ctx feats 1.0 gen pVec vVec
---   where ctx = mkDefaultCtx opts (keySignature (pieceMeta piece))
---         evs = extendPiece piece
 
 --------------
 -- training --
 --------------
-
--- expectedFeats :: Voice v => [Piece v] -> [Feature v] -> [Double]
--- expectedFeats pieces features = map (/n) counts
---   where n      = fromIntegral $ sum (map pieceLen pieces)
---         counts = foldr1 (zipWith (+)) (map ((flip countFeatures) features) pieces)
-
--- -- | Scale down a list of parameters such that the largest absolute value is 1.
--- compress :: [Double] -> ([Double],Double)
--- compress params = (map (/m) params, m)
---   where m = 1 -- maximum $ map abs params
 
 data TrainingLogEntry = TLogEntry
                         { leIt :: Int
@@ -360,7 +175,7 @@ data TrainingLogEntry = TLogEntry
                         }
 
 trainPCD
-  :: (Hashable v, Voice v, S.MonadAsync m, Optimize o)
+  :: (Voice v, S.MonadAsync m, Optimize o)
   => o
   -> GenIO
   -> AutoOpts v
@@ -476,7 +291,7 @@ epsilon :: Double
 epsilon = 10 ** (-8)
 
 instance Optimize Adam where
-  optimize (Adam b1 b2 t ms vs) prog rate gradient =
+  optimize (Adam b1 b2 t ms vs) _ rate gradient =
     (Adam b1 b2 (t + 1) ms' vs', gradient')
    where
     ms'       = VU.zipWith (\m g -> (b1 * m) + ((1 - b1) * g)) ms gradient
@@ -488,7 +303,7 @@ instance Optimize Adam where
       vc = v / (1 - b2 ** t)
 
 adam :: Double -> Double -> Int -> Adam
-adam b1 b2 n = Adam b1 b2 1 zeros zeros where zeros = (VU.replicate n 0)
+adam b1 b2 n = Adam b1 b2 1 zeros zeros where zeros = VU.replicate n 0
 
 -----------------------
 -- stopping criteria --
@@ -519,13 +334,10 @@ neighbor gen k (Piece meta evs) =
    where
     prevp :: Maybe Pitch
     prevp = evGetMaybe prev v
-    pVec  = case prevp of -- if preceded by pitch, add holding variant
-      Just (Pitch i _) -> pitchVector `V.snoc` (Pitch i True)
-      _                -> pitchVector
-    np        = V.length pVec
-    drawPitch = do
-      rand <- uniform gen :: m Double
-      pure $ pVec V.! (min np (ceiling (rand * fromIntegral np) - 1))
+    pLst  = case prevp of -- if preceded by pitch, add holding variant
+      Just (Pitch i _) -> Pitch i True : pitchList
+      _                -> pitchList
+    drawPitch = chooseRandom pLst gen
 
 stoppingXi
   :: Double -> FeatureCounts -> [FeatureCounts] -> ModelParams -> Double

@@ -3,10 +3,7 @@ module VoiceLeading.Theory where
 import           VoiceLeading.Base
 import           VoiceLeading.Helpers           ( rotate )
 
-import           Data.Foldable                  ( foldl' )
-import           Data.List                      ( elemIndex
-                                                , maximumBy
-                                                )
+import           Data.List                      ( elemIndex )
 import           Data.Maybe                     ( mapMaybe )
 import           Data.Ratio
 import           Data.Function.Memoize          ( memoize )
@@ -17,10 +14,13 @@ import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Vector.Unboxed.Mutable   as VUM
 
-import qualified Debug.Trace                   as DT
 import           Numeric.SpecFunctions          ( logBeta )
 import qualified Control.Loop                  as L
 
+-- simple ad-hoc heuristic
+--------------------------
+
+modal :: Int -> Int -> Int
 modal i m = [0, 2, 4, 5, 7, 9, 11] !! mod (i + m) 7
 
 cMajor :: [Int]
@@ -51,8 +51,9 @@ findHarm pitches = testRoot [0 .. 11]
   indexVal i = 1 % (fromIntegral i + 1)
   testChord chord tps = sum $ map val [0 .. maximum is]
    where
-    is = mapMaybe (flip elemIndex chord) tps
+    is = mapMaybe (`elemIndex` chord) tps
     val i = if i `elem` is then indexVal i else negate (indexVal i)
+  testRoot [] = (0, 0) -- just a catchall
   testRoot (r : rs) =
     let tps   = map ((`mod` 12) . (\x -> x - r)) ps
         score = max (testChord majorChord tps) (testChord minorChord tps)
@@ -64,6 +65,9 @@ findHarm pitches = testRoot [0 .. 11]
    where
     tps      = map ((`mod` 12) . (\x -> x - r)) ps
     newScore = max (testChord majorChord tps) (testChord minorChord tps)
+
+-- chord profiles
+-----------------
 
 type Profile = (Double, VU.Vector Double)
 type Profiles = V.Vector Profile
@@ -84,14 +88,14 @@ logDirichletMultinomial (a0, as) xs n = num - denom
  where
   l = VU.length xs
   entry acc i = if xi > 0 then acc + log xi + logBeta (as VU.! i) xi else acc
-    where xi = (xs VU.! i)
+    where xi = xs VU.! i
   num   = log n + logBeta a0 n
   denom = L.forLoopFold 0 (< l) (+ 1) 0 entry
 
 mkChord :: Int -> [Int] -> VU.Vector Double
 mkChord r pitches = VU.create $ do
   chord <- VUM.replicate 12 0
-  mapM_ (VUM.unsafeModify chord (+ 1) . (`mod` 12) . (subtract r)) pitches
+  mapM_ (VUM.unsafeModify chord (+ 1) . (`mod` 12) . subtract r) pitches
   pure chord
 
 matchChordProfiles :: Profiles -> [Int] -> (Int, Double)
@@ -105,10 +109,3 @@ matchChordProfiles profiles pitches = (maxRoot, chordness / 0.3) -- normalize by
   bestMatches = bestMatch <$> roots
   maxRoot     = V.maxIndex bestMatches
   chordness   = exp $ bestMatches V.! maxRoot
-  check =
-    if (chordness >= 1)
-         || (chordness <= 0)
-         || isNaN chordness
-         || isInfinite chordness
-      then "chordness = " <> show chordness <> " for pitches " <> show pitches
-      else ""

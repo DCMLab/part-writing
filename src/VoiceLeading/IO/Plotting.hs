@@ -1,10 +1,8 @@
 module VoiceLeading.IO.Plotting where
 
 import           VoiceLeading.Distribution
-import           VoiceLeading.Automaton         ( NamedFeature(..) )
+import           VoiceLeading.Features          ( NamedFeature(..) )
 
-import           Control.Concurrent             ( forkIO )
-import           Control.Monad                  ( zipWithM_ )
 import qualified Data.Text                     as T
 import           Control.Lens                   ( use )
 import qualified Data.Vector                   as V
@@ -17,28 +15,20 @@ import           Graphics.Rendering.Chart.Backend.Cairo
                                                 , FileFormat(..)
                                                 )
 import qualified Data.Colour.Palette.ColorSet  as K
-import qualified Data.Colour.Palette.BrewerSet as K
+-- import qualified Data.Colour.Palette.BrewerSet as K
 
 import           VoiceLeading.IO.HorizontalBars
 
--- import qualified Plots                         as P
--- import qualified Diagrams.Prelude              as D
--- import           Diagrams.Backend.SVG           ( renderSVG
---                                                 , B
---                                                 )
-
 plotOverFeatures
   :: FilePath -> String -> V.Vector T.Text -> VU.Vector Double -> IO ()
-plotOverFeatures fp title names vals =
-    -- putStrLn "log"
-                                       toFile opts fp $ do
+plotOverFeatures fp title names vals = toFile opts fp $ do
   layout_title .= title
   layout_top_axis_visibility .= def
   layout_y_axis . laxis_generate .= autoIndexAxis labels
   layout_y_axis . laxis_style . axis_label_style . font_size .= 8
   setColors $ opaque . K.d3Colors1 <$> [0 ..]
-  plot $ plotHBars <$> barPlot -- bars ["parameter value"] (addIndexes (map (:[]) ps))
- where --mkParamMap = zipWith (\n p -> (n,[p])) (map nfName nfs) ps
+  plot $ plotHBars <$> barPlot
+ where
   opts    = FileOptions (600, 2200) PDF
   labels  = reverse $ T.unpack <$> V.toList names
   values  = reverse $ (: []) <$> VU.toList vals
@@ -50,19 +40,6 @@ plotOverFeatures fp title names vals =
     plot_bars_style .= BarsClustered
     plot_bars_spacing .= BarsFixGap 30 5
 
--- plotOverFeatures
---   :: FilePath -> String -> V.Vector T.Text -> VU.Vector Double -> IO ()
--- plotOverFeatures fp title names vals = renderSVG fp D.absolute plotDia
---  where
---   height  = 20 * fromIntegral (V.length names)
---   values  = zip (T.unpack <$> V.toList names) (VU.toList vals)
---   -- plotDia :: P.Axis B D.V2 Double
---   plotDia = P.renderAxis $ P.r2Axis &~ do
---     P.axisSize .= D.dims2D 600 height
---     -- P.scaleAspectRatio .= Nothing
---     -- P.scaleMode .= P.NoScale
---     P.namedBarPlot' values
-
 printOverFeatures
   :: FilePath -> String -> V.Vector T.Text -> VU.Vector Double -> IO ()
 printOverFeatures _ title names values = do
@@ -71,10 +48,7 @@ printOverFeatures _ title names values = do
   putStrLn ""
   where printPair n v = putStrLn $ show n ++ ": " ++ show v
 
-plottingSetup :: IO ()
-plottingSetup = pure ()
-
-plottingLogger :: Show v => FilePath -> Model v -> IO ()
+plottingLogger :: FilePath -> Model v -> IO ()
 plottingLogger fp model = plotOverFeatures fp
                                            "Model feature weights"
                                            names

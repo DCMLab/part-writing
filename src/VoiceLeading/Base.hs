@@ -53,8 +53,8 @@ module VoiceLeading.Base
   , toEv
   , evGet
   , evGetMaybe
-  , voices
-  , pitches
+  , evVoices
+  , evPitches
   , removeRests
   , addRests
   , rests
@@ -75,15 +75,17 @@ where
 
 import qualified Data.Map.Strict               as M
 import qualified Data.Vector                   as V
-import qualified Data.List                     as L
-import qualified Debug.Trace                   as DT
-import           VoiceLeading.Helpers           ( showMap )
+import           VoiceLeading.Helpers           ( showMap
+                                                , parseRead
+                                                )
 
 import           Data.Function.Memoize          ( deriveMemoizable )
 
 import           GHC.Generics                   ( Generic )
 import           Data.Hashable
+import           Data.Aeson                     ( FromJSON(..) )
 import           Control.DeepSeq
+import           Control.Monad                  ( replicateM )
 
 -----------
 -- Voice --
@@ -99,7 +101,7 @@ class (Eq a, Ord a, Show a, Read a, Enum a, Bounded a, NFData a) => Voice a wher
   voiceList :: [a]
   voiceList = V.toList voiceVector
   defaultRange :: a -> (Int, Int)
-  defaultRange v = (38,81) -- some kind of vocal range default values
+  defaultRange _ = (38,81) -- some kind of vocal range default values
 
 -- | 'ChoralVoice' is an instance of 'Voice' used for four-part writing.
 data ChoralVoice = Bass | Tenor | Alto | Soprano
@@ -115,6 +117,10 @@ instance Voice ChoralVoice where
 instance Hashable ChoralVoice
 
 instance NFData ChoralVoice
+
+instance FromJSON ChoralVoice where
+  parseJSON = parseRead "ChoralVoice"
+
 
 -- | 'CounterpointVoice' is an alternative implementation of 'Voice'
 --   which can be used to model two-part counterpoint.
@@ -138,9 +144,11 @@ data Pitch = Rest | Pitch !Int !Bool
   deriving (Eq, Ord, Generic)
 
 -- the chromatic names of all 12 pitch classes, used for 'show'ing
+pitchNames :: [String]
 pitchNames = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"]
 
 -- convert a midi pitch to a human readable name
+showPitch :: Int -> String
 showPitch i = (pitchNames !! mod i 12) ++ show (div i 12 - 1)
 
 instance Show Pitch where
@@ -203,7 +211,7 @@ type Beat = Rational
 --   Events are parameterized on the type of voice.
 --   As a consequnce, pretty much all of the code that uses events is
 --   parameterized on the voice type as well, some with a @Voice v =>@ constraint.
-data Event v = Event { evMap  :: (M.Map v Pitch)
+data Event v = Event { evMap  :: M.Map v Pitch
                      , evBeat :: Beat }
   deriving (Eq, Generic)
 
@@ -218,11 +226,11 @@ emptyEvent :: Voice v => Event v
 emptyEvent = addRests $ Event M.empty 0
 
 -- | 'True' iff the event is empty or consists of rests only
-isEmptyEvent :: Voice v => Event v -> Bool
+isEmptyEvent :: Event v -> Bool
 isEmptyEvent (Event e _) = all isRest (M.elems e)
 
 -- | Turns a 'Data.Map.Strict.Map' into an 'Event'.
-toEv :: Voice v => M.Map v Pitch -> Beat -> Event v
+toEv :: M.Map v Pitch -> Beat -> Event v
 toEv = Event
 
 -- | @evGetMaybe e v@ returns @'Just' p@ if the 'Event' @e@ maps 'Voice' @v@
@@ -243,15 +251,15 @@ instance Voice v => Show (Event v) where
   show (Event m b) = "Event@" ++ show b ++ showMap m
 
 -- | Returns all 'Voice's in the 'Event'.
-voices :: Voice v => Event v -> [v]
-voices (Event m _) = M.keys m
+evVoices :: Event v -> [v]
+evVoices (Event m _) = M.keys m
 
 -- | Returns all 'Pitch'es in the 'Event'.
-pitches :: Event v -> [Pitch]
-pitches (Event m _) = M.elems m
+evPitches :: Event v -> [Pitch]
+evPitches (Event m _) = M.elems m
 
 -- | Returns a new 'Event' without mappings to 'Rest'.
-removeRests :: Voice v => Event v -> Event v
+removeRests :: Event v -> Event v
 removeRests (Event m b) = toEv (M.filter isPitch m) b
 
 -- | Returns a new 'Event' containing a mapping from every 'Voice' in 'voiceList'.
@@ -261,7 +269,7 @@ addRests (Event m b) = toEv (foldl addRest m voiceList) b
   where addRest e v = if M.member v e then e else M.insert v Rest e
 
 -- | Returns the number of 'Rest's in the 'Event'. 
-rests :: Voice v => Event v -> Int
+rests :: Event v -> Int
 rests e = M.size (evMap e) - M.size (evMap (removeRests e))
 
 -- | A list of all possible 'Event's
@@ -269,8 +277,8 @@ rests e = M.size (evMap e) - M.size (evMap (removeRests e))
 allEvents :: Voice v => [v] -> [Pitch] -> [Event v]
 allEvents voices pitches = map makeEvent pitchProd
  where
-  pitchProd = sequence $ replicate (length voices) pitches
-  makeEvent = (flip toEv) 0 . M.fromList . zip voices
+  pitchProd = replicateM (length voices) pitches
+  makeEvent = flip toEv 0 . M.fromList . zip voices
 
 -- | A list of all possible 'Event's
 --   derived from 'voiceList' and 'pitchList'.
@@ -285,8 +293,8 @@ eventList = allEvents voiceList pitchList
 --   and a mode (mod 7): 0=ionian/major, 1=dorian, 2=phrygian, 3=lydian,
 --   4=mixolydian, 5=aeolian/minor, 6=locrian 
 data KeySig = KeySig
-  { root :: Int
-  , mode :: Int }
+  { ksRoot :: Int
+  , ksMode :: Int }
   deriving (Eq, Generic)
 
 -- | Creates a 'KeySig' from a root and a mode (cf. 'KeySig').
@@ -329,6 +337,7 @@ instance Hashable PieceMeta
 instance NFData PieceMeta
 
 -- | The "default" metadata, used if nothing else is known.
+nullPieceMeta :: PieceMeta
 nullPieceMeta = PieceMeta "untitled" (4, 4) (KeySig 0 0)
 
 -- | The type 'Piece' wraps '[Event]' and piece metadata.
@@ -359,42 +368,11 @@ normalizeTies (Piece meta evs) keep =
 normalizeTiesScanner :: Voice v => Bool -> Event v -> Event v -> Event v
 normalizeTiesScanner keep e1 (Event m b) = toEv (M.mapWithKey norm m) b
  where
-  norm v p = norm1 (evGet e1 v) p
+  norm v = norm1 (evGet e1 v)
   norm1 (Pitch p1 _) (Pitch p2 True) | p1 /= p2 =
-    if keep then (Pitch p1 True) else (Pitch p2 False)
+    if keep then Pitch p1 True else Pitch p2 False
   norm1 _ p = p
 
 -- | Return the number of events in the piece.
 pieceLen :: Piece v -> Int
 pieceLen = length . pieceEvents
-
----------------------
--- Extended Events --
----------------------
-
--- -- | The type 'EEvent' extends 'Event' by a "start" (⋊) and an "end" (⋉) value.
--- --   This can be useful in situations where the beginning and the end of an
--- --   event sequence need to be taken into account.
--- data EEvent v = EStart | EEvent (Event v) | EEnd
---   deriving (Show)
-
--- deriving instance Eq v => Eq (EEvent v) 
-
--- -- | The type 'EPiece' is a list of 'EEvent's (like 'Piece' for 'Event')
--- type EPiece v = [EEvent v]
-
--- -- | Converts a sequence of 'Event's to a sequence of 'EEvent's,
--- --   enclosing it with 'EStart' and 'EEnd'.
--- toEPiece :: Voice v => Piece v -> EPiece v
--- toEPiece (Piece _ piece) = EStart : (map EEvent piece) ++ [EEnd]
-
--- -- | An 'EEvent' version of 'eventList' including 'EStart' and 'EEnd'.
--- eEventList :: Voice v => EPiece v
--- eEventList = toEPiece (Piece nullPieceMeta eventList)
-
--- -- | The type 'EPieces' is a sequence of 'EPiece's (like 'Pieces' for 'Piece')
--- type EPieces v = [EPiece v]
-
--- -- | Converts 'Pieces' to 'EPieces', adding 'EStarts' and 'EEnds'.
--- toEPieces :: Voice v => Pieces v -> EPieces v
--- toEPieces = map toEPiece

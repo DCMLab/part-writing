@@ -12,7 +12,10 @@ import           Data.List                      ( intercalate )
 import qualified Data.Vector.Unboxed           as VU
 import           Control.Monad.Trans.Maybe
 import           System.Random.MWC              ( uniformR
-                                                , GenIO
+                                                , Gen
+                                                )
+import           Control.Monad.Primitive        ( PrimMonad
+                                                , PrimState
                                                 )
 import           Data.Word                      ( Word32 )
 import           GHC.Generics                   ( Generic )
@@ -24,23 +27,23 @@ processList :: Foldable t => t i -> ProcessT Identity i o -> [o]
 processList ins p = run $ source ins ~> p
 
 showMap :: (Show k, Show v) => M.Map k v -> String
-showMap m = "{" ++ (intercalate ", " pairs) ++ "}"
-  where pairs = map (\(k, v) -> show k ++ ": " ++ show v) (M.toList $ m)
+showMap m = "{" <> intercalate ", " kvPairs <> "}"
+  where kvPairs = (\(k, v) -> show k <> ": " <> show v) <$> M.toList m
 
 -- | Safe list access.
 -- Negative indices count from the end.
 lGet :: [a] -> Int -> Maybe a
-lst `lGet` i = g lst i
+lst `lGet` i = g
  where
   l = length lst
-  g lst i | i >= 0 && i < l    = Just $ lst !! i
-          | i < 0 && (-i) <= l = Just $ lst !! (l - i)
-          | otherwise          = Nothing
+  g | i >= 0 && i < l    = Just $ lst !! i
+    | i < 0 && (-i) <= l = Just $ lst !! (l - i)
+    | otherwise          = Nothing
 
 -- | Safely replace the head of a list.
 replaceHead :: [a] -> (a -> a) -> [a]
 replaceHead []       _ = []
-replaceHead (x : xs) f = (f x) : xs
+replaceHead (x : xs) f = f x : xs
 
 safeInit :: [a] -> [a]
 safeInit []  = []
@@ -57,12 +60,12 @@ norm :: (Foldable f, Functor f, Floating a) => f a -> a
 norm vector = sqrt $ sum $ fmap (\x -> x * x) vector
 
 normU :: (Floating a, VU.Unbox a) => VU.Vector a -> a
-normU vector = sqrt $ VU.sum $ VU.map (^ 2) vector
+normU vector = sqrt $ VU.sum $ VU.map (\x -> x * x) vector
 
 rotate :: Int -> [a] -> [a]
 rotate n xs = take l (drop (n `mod` l) (xs ++ xs)) where l = length xs
 
-chooseRandom :: [a] -> GenIO -> IO a
+chooseRandom :: (PrimMonad m) => [a] -> Gen (PrimState m) -> m a
 chooseRandom lst gen = do
   i <- uniformR (0, length lst - 1) gen
   pure $ lst !! i
@@ -78,7 +81,7 @@ quadratic :: Double -> Double -> Double -> Double
 quadratic start end prog = start + (end - start) * prog * prog
 
 power :: Double -> Double -> Double -> Double -> Double
-power exponent start end prog = start + (end - start) * (prog ** exponent)
+power p start end prog = start + (end - start) * (prog ** p)
 
 cubic :: Double -> Double -> Double -> Double
 cubic = power 3

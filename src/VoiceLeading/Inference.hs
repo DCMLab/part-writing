@@ -5,48 +5,46 @@ module VoiceLeading.Inference where
 import           VoiceLeading.Base
 import           VoiceLeading.Helpers
 import           VoiceLeading.Automaton
+import           VoiceLeading.Features
 import           VoiceLeading.Distribution
 import           VoiceLeading.Learning
 
 import           System.Random.MWC              ( createSystemRandom
-                                                , uniformR
                                                 , GenIO
                                                 )
 import           System.Random.MWC.Distributions
                                                 ( uniformShuffle )
 import           Control.Monad                  ( replicateM
                                                 , mapM
-                                                , when
                                                 )
 import           Data.Foldable                  ( foldlM )
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Vector.Generic           as VG
 import qualified Data.Map.Strict               as M
-import           Data.List                      ( transpose
-                                                , (\\)
-                                                )
+import qualified Data.List                     as L
 import           Data.Bifunctor                 ( second )
 -- import Data.Hashable (Hashable, hash)
 
-import           System.ProgressBar
 import           Text.Printf                    ( printf )
 import           System.IO                      ( stdout
                                                 , hFlush
                                                 )
 
-import           VoiceLeading.IO.LilyPond
 import           Control.Monad.IO.Class         ( MonadIO
                                                 , liftIO
                                                 )
 import qualified Control.Monad.Trans.State     as ST
+
+-- randomization of pieces
+--------------------------
 
 uniformRandomEvent :: Voice v => GenIO -> IO (M.Map v Pitch)
 uniformRandomEvent gen = do
   pairs <- mapM roll voiceList
   pure $ M.fromList pairs
  where
-  roll :: Voice v => v -> IO (v, Pitch)
+  roll :: v -> IO (v, Pitch)
   roll v = (,) v <$> chooseRandom pitchList gen
 
 n2time :: Int -> (Int, Integer)
@@ -65,12 +63,12 @@ uniformRandomPiece n gen = do
   pure $ Piece meta (zipWith toEv evs beats)
 
 randomizePiece :: forall  v . Voice v => GenIO -> [v] -> Piece v -> IO (Piece v)
-randomizePiece gen fixedVoices (Piece meta evs) = Piece meta <$> newEvs
+randomizePiece gen fixedVoices (Piece meta events) = Piece meta <$> newEvs
  where
   initState = M.fromList $ zip voiceList (repeat Rest)
-  voices    = voiceList \\ fixedVoices
+  voices    = voiceList L.\\ fixedVoices
   newEvs    = do
-    (evs, _) <- flip ST.runStateT initState $ mapM randomizeEvent evs
+    (evs, _) <- flip ST.runStateT initState $ mapM randomizeEvent events
     pure evs
   randomizeEvent :: Event v -> ST.StateT (M.Map v Pitch) IO (Event v)
   randomizeEvent (Event pitches b) = do
@@ -82,188 +80,8 @@ randomizePiece gen fixedVoices (Piece meta evs) = Piece meta <$> newEvs
     p' <- liftIO $ chooseRandom (holdPitch prevp : pitchList) gen
     pure $ M.insert v p' pitches
 
--- mapEstimateEventwise :: Voice v => AutoOpts v -> Model v -> Int -> IO (Piece v)
--- mapEstimateEventwise opts model len = do
---   init <- uniformRandomPiece' len
---   let evs   = extendPiece init
---       meta  = pieceMeta init
---       ctx   = mkDefaultCtx opts (keySignature meta)
---       evVec = eventVector
---       estimateGo ePiece = do
---         putStrLn "run over piece"
---         (changed, newEvs) <- runOverPiece ePiece firstState False []
---         if changed then estimateGo newEvs else pure $ extractPiece meta ePiece
---        where
---         runOverPiece [] _ changed evAcc = pure (changed, reverse evAcc)
---         runOverPiece (ev : evs) state changed evAcc = do
---           (newEv, newSt) <- maxEvent model ev evs state ctx evVec
---           if newEv /= ev
---             then runOverPiece evs newSt True (newEv : evAcc)
---             else runOverPiece evs newSt changed (newEv : evAcc)
---   estimateGo evs
-
--- maxEvent
---   :: Voice v
---   => Model v
---   -> EEvent v
---   -> [EEvent v]
---   -> State v
---   -> Context v
---   -> V.Vector (Event v)
---   -> IO (EEvent v, State v)
--- maxEvent (Model nfeats params) orig evs state ctx evVec = do
---   putStrLn $ "maximizing event, lka = " ++ show lka
---   prog <- newProgressBar (defStyle { stylePrefix = exact })
---                          10
---                          (Progress 0 2560000 ())
---   vals <- V.zipWithM (evalEv prog) evVec (V.generate (V.length evVec) id)
---   let new = evVec V.! V.maxIndex vals
---   pure $! (extendLike' new orig, nextState state new)
---  where
---   lka     = lookahead evs
---   section = take lka evs
---   sectevs = extract <$> section
---   feats   = nfFeature <$> nfeats
---   evalEv prog new i = do
---     when (i `mod` 8000 == 0) (incProgress prog 8000)
---     pure $! evalModelUnnormLog counts params
---    where
---     states = scanl nextState state (new : init sectevs)
---     enew   = extendLike' new orig
---     fs     = runFeaturesOnEEvs (enew : section) states ctx feats
---     counts = sumFeaturesP feats fs
-
--- TODO: this is broken, sometimes decreases score
-
-maxNotewise
-  :: Voice v
-  => AutoOpts v
-  -> Maybe (Piece v)
-  -> Model v
-  -> Int
-  -> [v]
-  -> IO (Piece v)
-maxNotewise opts piece model len fixedVoices = do
-  gen  <- createSystemRandom
-  init <- case piece of
-    Nothing -> uniformRandomPiece len gen
-    Just p  -> pure p
-  let evs      = extendPiece init
-      meta     = pieceMeta init
-      ctx      = mkDefaultCtx opts (keySignature meta)
-      pVec     = V.fromList pitchList
-      vVec     = V.fromList (voiceList \\ fixedVoices)
-      params   = modelParams model
-      indexMap = featureMap voiceList (V.toList $ modelFeatures model)
-      featMap  = M.map (second $ VG.map (params VG.!)) indexMap
-      estimateGo ePiece = do
-        putStr "Maximizing: "
-        hFlush stdout
-        (changed, newEvs) <- runOverPiece ePiece firstState False []
-        putStrLn $ printf
-          "meanLogPotential = % 7.5f"
-          (meanLogPotential opts (extractPiece meta newEvs) model)
-        if changed then estimateGo newEvs else pure $ extractPiece meta ePiece
-       where
-        runOverPiece [] _ changed evAcc = pure (changed, reverse evAcc)
-        runOverPiece (ev : evs) state changed evAcc = do
-          (newEv, newSt) <- maxNote state (ev : evs) ctx featMap gen pVec vVec
-          if newEv /= ev
-            then runOverPiece evs newSt True (newEv : evAcc)
-            else runOverPiece evs newSt changed (newEv : evAcc)
-  estimateGo evs
-
-maxNote
-  :: Voice v
-  => State v
-  -> [EEvent v]
-  -> Context v
-  -> M.Map v (V.Vector (Feature v), ModelParams)
-  -> GenIO
-  -> V.Vector Pitch
-  -> V.Vector v
-  -> IO (EEvent v, State v)
-maxNote state (orig : evs) ctx model gen pVec vVec = do
-  voices <- uniformShuffle vVec gen
-  ev     <- V.foldM' sampleNote (extract orig) voices
-  pure $! (extendLike' ev orig, nextState state ev)
- where
-    -- sampleNote :: Event v -> v -> Event v
-  sampleNote event voice = do
-    qualities <- V.mapM propose evVec
-    pure $ evVec V.! V.maxIndex qualities
-   where
-    feats   = fst $ model M.! voice
-    params  = snd $ model M.! voice
-    -- prepare successor events
-    lka     = lookaheadV evs voice -- lookahead
-    sectext = take lka evs -- section of extended events to look at
-    sect    = map extract sectext -- extracted sect
-    -- prepare proposal events
-    emap    = evMap event -- voice-pitch-map of current event
-    mkEv p = event { evMap = M.insert voice p emap } -- replace the pitch of the current voice
-    evVec' = V.map mkEv pVec -- try all possible pitches
-    prevp  = lGet (M.findWithDefault [] voice (sPrevPitch state)) 0 -- previous pitch
-    evVec  = case prevp of -- if preceded by pitch, add holding variant
-      Just (Pitch i _) -> evVec' `V.snoc` mkEv (Pitch i True)
-      _                -> evVec'
-    propose ev = do
-      counts <- sumFeaturesM feats fs
-      pure $ evalModelUnnormLog counts params
-     where
-      sect'  = scanl1 (normalizeTiesScanner False) (ev : sect) -- correct ties
-      sectx' = zipWith extendLike sect' (orig : sectext) -- also in extended section
-      states = scanl nextState state (safeInit sect')
-      fs     = runFeaturesOnEEvs sectx' states ctx feats
-
-bestEstimate
-  :: Voice v => AutoOpts v -> IO [Piece v] -> Model v -> IO (Piece v, Double)
-bestEstimate opts estimates model = do
-  (p1 : ps) <- estimates
-  pure $ foldl comp (p1, evalPieceUnnormLog opts p1 model) ps
- where
-  comp (old, oldScore) new =
-    let newScore = evalPieceUnnormLog opts new model
-    in  if newScore > oldScore then (new, newScore) else (old, oldScore)
-
-estimateGibbsAnnealingOld
-  :: (Voice v)
-  => AutoOpts v
-  -> (  [EEvent v]
-     -> M.Map v (V.Vector (Feature v), VU.Vector Int)
-     -> ModelParams
-     -> Double
-     -> GenIO
-     -> IO [EEvent v]
-     )
-  -> Piece v
-  -> Model v
-  -> Int
-  -> (Double -> Double)
-  -> IO (Piece v)
-estimateGibbsAnnealingOld opts step piece model iterations fPower = do
-  gen <- createSystemRandom
-  let
-    evs     = extendPiece piece
-    meta    = pieceMeta piece
-    iterd   = fromIntegral iterations - 1
-    featMap = featureMap voiceList (V.toList $ modelFeatures model)
-    -- goEstimate :: Int -> [EEvent v] -> IO [EEvent v]
-    goEstimate n evs
-      | n >= iterations = pure evs
-      | otherwise = do
-        printf "Sampling: n = %d, power = % 5.2f" n power
-        hFlush stdout
-        newEvs <- step evs featMap (modelParams model) power gen
-        let p = extractPiece meta newEvs
-        putStrLn
-          $ printf ", meanLogPot = % 7.5f" (meanLogPotential opts p model)
-        goEstimate (n + 1) newEvs
-     where
-      progress = fromIntegral n / iterd
-      power    = fPower progress
-  est <- (goEstimate 0 evs)
-  pure $ extractPiece meta est
+-- MAP inference by simulated annealing
+---------------------------------------
 
 -- parameters: iteration, potential, temp, dC, dS
 type InfLogger m = Int -> Double -> Double -> Double -> Double -> m ()
@@ -343,7 +161,7 @@ estimateGibbsNotes gen opts fixedVoices piece = estimateGibbsTSA gen
  where
   ctx  = mkDefaultCtx opts (keySignature $ pieceMeta piece)
   pVec = V.fromList pitchList
-  vVec = V.fromList (voiceList \\ fixedVoices)
+  vVec = V.fromList (voiceList L.\\ fixedVoices)
   step = gibbsStepNote (const (pVec, ())) () vVec ctx
 
 estimateGibbsNotes'
@@ -368,11 +186,94 @@ estimateGibbsNotes' gen opts fixedVoices groups piece = estimateGibbsTSA
   piece
  where
   ctx  = mkDefaultCtx opts (keySignature $ pieceMeta piece)
-  vVec = V.fromList (voiceList \\ fixedVoices)
+  vVec = V.fromList (voiceList L.\\ fixedVoices)
   fpVec []       = error "Not enough pitch groups provided"
   fpVec (g : gs) = (g, gs)
   step = gibbsStepNote fpVec groups vVec ctx
 
--- estimateGibbsEvents opts kernel kinit piece = estimateGibbsAnnealing opts step piece
---   where ctx = mkDefaultCtx opts (keySignature $ pieceMeta piece)
---         step evs m p gen = gibbsStepEv kernel kinit evs ctx m p gen
+-- local maximization
+---------------------
+
+-- TODO: this is broken, sometimes decreases score
+
+maxNotewise
+  :: Voice v
+  => AutoOpts v
+  -> Maybe (Piece v)
+  -> Model v
+  -> Int
+  -> [v]
+  -> IO (Piece v)
+maxNotewise opts piece model len fixedVoices = do
+  gen       <- createSystemRandom
+  initPiece <- case piece of
+    Nothing -> uniformRandomPiece len gen
+    Just p  -> pure p
+  let events   = extendPiece initPiece
+      meta     = pieceMeta initPiece
+      ctx      = mkDefaultCtx opts (keySignature meta)
+      pVec     = V.fromList pitchList
+      vVec     = V.fromList (voiceList L.\\ fixedVoices)
+      params   = modelParams model
+      indexMap = featureMap voiceList (V.toList $ modelFeatures model)
+      featMap  = M.map (second $ VG.map (params VG.!)) indexMap
+      estimateGo ePiece = do
+        putStr "Maximizing: "
+        hFlush stdout
+        (changed, newEvs) <- runOverPiece ePiece firstState False []
+        putStrLn $ printf
+          "meanLogPotential = % 7.5f"
+          (meanLogPotential opts (extractPiece meta newEvs) model)
+        if changed then estimateGo newEvs else pure $ extractPiece meta ePiece
+       where
+        runOverPiece [] _ changed evAcc = pure (changed, reverse evAcc)
+        runOverPiece (ev : evs) state changed evAcc = do
+          (newEv, newSt) <- maxNote state ev evs ctx featMap gen pVec vVec
+          if newEv /= ev
+            then runOverPiece evs newSt True (newEv : evAcc)
+            else runOverPiece evs newSt changed (newEv : evAcc)
+  estimateGo events
+
+maxNote
+  :: Voice v
+  => State v
+  -> EEvent v
+  -> [EEvent v]
+  -> Context v
+  -> M.Map v (V.Vector (Feature v), ModelParams)
+  -> GenIO
+  -> V.Vector Pitch
+  -> V.Vector v
+  -> IO (EEvent v, State v)
+maxNote state orig evs ctx model gen pVec vVec = do
+  voices <- uniformShuffle vVec gen
+  ev     <- V.foldM' sampleNote (extract orig) voices
+  pure $! (extendLike' ev orig, nextState state ev)
+ where
+    -- sampleNote :: Event v -> v -> Event v
+  sampleNote event voice = do
+    qualities <- V.mapM propose evVec
+    pure $ evVec V.! V.maxIndex qualities
+   where
+    feats   = fst $ model M.! voice
+    params  = snd $ model M.! voice
+    -- prepare successor events
+    lka     = lookahead evs voice -- lookahead
+    sectext = take lka evs -- section of extended events to look at
+    sect    = map extract sectext -- extracted sect
+    -- prepare proposal events
+    emap    = evMap event -- voice-pitch-map of current event
+    mkEv p = event { evMap = M.insert voice p emap } -- replace the pitch of the current voice
+    evVec' = V.map mkEv pVec -- try all possible pitches
+    prevp  = lGet (M.findWithDefault [] voice (sPrevPitch state)) 0 -- previous pitch
+    evVec  = case prevp of -- if preceded by pitch, add holding variant
+      Just (Pitch i _) -> evVec' `V.snoc` mkEv (Pitch i True)
+      _                -> evVec'
+    propose ev = do
+      counts <- sumFeaturesM feats fs
+      pure $ evalModelUnnormLog counts params
+     where
+      sect'  = scanl1 (normalizeTiesScanner False) (ev : sect) -- correct ties
+      sectx' = zipWith extendLike sect' (orig : sectext) -- also in extended section
+      states = scanl nextState state (safeInit sect')
+      fs     = runFeaturesOnEEvs sectx' states ctx feats

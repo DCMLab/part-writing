@@ -32,18 +32,11 @@ import           Data.List                      ( groupBy
 import           Data.Function                  ( on )
 import           Data.Ratio
 import           System.FilePath                ( takeBaseName )
-import           System.Directory               ( listDirectory
-                                                , renameFile
-                                                )
-
--- choraleFP :: String -> FilePath
--- choraleFP chorale = "/home/chfin/Uni/master/data/JSB Chorales/" ++ chorale ++ ".mid"
-
--- chorale = "/home/chfin/Uni/master/data/bach_chorales_bachcentral/01AusmeinesHerz.mid"
+import           System.Directory               ( listDirectory )
 
 isTimeSig :: Message -> Bool
-isTimeSig (TimeSignature _ _ _ _) = True
-isTimeSig _                       = False
+isTimeSig TimeSignature{} = True
+isTimeSig _               = False
 
 isKeySig :: Message -> Bool
 isKeySig (KeySignature _ _) = True
@@ -68,31 +61,39 @@ loadMidi fp = do
     Left  _ -> return $ Piece nullPieceMeta []
     Right m -> return $ convertMidi fp m
 
-convertMidi :: forall  v . Voice v => FilePath -> Midi -> (Piece v)
+findTS :: Track Ticks -> (Int, Int)
+findTS track = getTS $ find (isTimeSig . snd) track
+ where
+  getTS (Just (_, (TimeSignature bpbar denom _ _))) = (bpbar, denom)
+  getTS _ = (4, 2)
+
+findKS :: Track Ticks -> (Int, Int)
+findKS track = getKS $ find (isKeySig . snd) track
+ where
+  getKS (Just (_, (KeySignature accs mode))) = (accs, mode)
+  getKS _ = (0, 0)
+
+convertMidi :: forall  v . Voice v => FilePath -> Midi -> Piece v
 convertMidi fp midi =
-  let
-    s      = midiToStream midi (length (voiceList :: [v]))
-    notes  = filter (liftA2 (||) isNoteOn isNoteOff . snd) s
-    groups = groupBy ((==) `on` fst) notes
-    TimeSignature bpbar denom _ _ =
-      maybe (TimeSignature 4 2 24 8) snd (find (isTimeSig . snd) s)
-    qpbar  = 4 * (bpbar % 2 ^ denom)
-    bardur = round $ fromIntegral (ppq (timeDiv midi)) * qpbar -- bar duration in ticks
-    bdur   = round $ bardur % bpbar -- beat duration in ticks
-    t2b    = tickToBeat bardur bdur -- converts abs ticks to rel beats
-    KeySignature accs key =
-      maybe (KeySignature 0 0) snd (find (isKeySig . snd) s)
-    events = scanl (msgToEvent t2b) emptyEvent groups
-    evdrop = dropWhileEnd isEmptyEvent (dropWhile isEmptyEvent events)
-    meta   = PieceMeta { title         = takeBaseName fp
-      -- clever key signature conversion calculations:
-      -- root = 7*accidentals (mod 12)
-      -- modus = 0*5 = 0 (major) or 1*5 = 5 (minor)
-                       , keySignature  = mkKeySig (mod (7 * accs) 12) (key * 5)
+  let s              = midiToStream midi (length (voiceList :: [v]))
+      notes          = filter (liftA2 (||) isNoteOn isNoteOff . snd) s
+      groups         = groupBy ((==) `on` fst) notes
+      (bpbar, denom) = findTS s
+      qpbar          = 4 * (bpbar % 2 ^ denom)
+      bardur         = round $ fromIntegral (ppq (timeDiv midi)) * qpbar -- bar duration in ticks
+      bdur           = round $ bardur % bpbar -- beat duration in ticks
+      t2b            = tickToBeat bardur bdur -- converts abs ticks to rel beats
+      (accs, mode)   = findKS s
+      events         = scanl (msgToEvent t2b) emptyEvent groups
+      evdrop         = dropWhileEnd isEmptyEvent (dropWhile isEmptyEvent events)
+      meta = PieceMeta { title         = takeBaseName fp
+        -- clever key signature conversion calculations:
+        -- root = 7*accidentals (mod 12)
+        -- modus = 0*5 = 0 (major) or 1*5 = 5 (minor)
+                       , keySignature  = mkKeySig (mod (7 * accs) 12) (mode * 5)
                        , timeSignature = (toInteger bpbar, 2 ^ denom)
                        }
-  in
-    Piece meta evdrop
+  in  Piece meta evdrop
 
 midiToStream :: Midi -> Int -> Track Ticks
 midiToStream m n = toAbsTime $ foldl1 merge (take (n + 1) (tracks m))
@@ -110,7 +111,7 @@ msgToEvent
   -> Event v
   -> [(Ticks, Message)]
   -> Event v
-msgToEvent ttb (Event pm pb) msgs = toEv (foldl applyMsg holdAll msgs) beat
+msgToEvent ttb (Event pm _) msgs = toEv (foldl applyMsg holdAll msgs) beat
  where
   holdAll = M.map holdPitch pm
   beat    = ttb (fst (head msgs))
@@ -121,16 +122,14 @@ msgToEvent ttb (Event pm pb) msgs = toEv (foldl applyMsg holdAll msgs) beat
     if c >= nv then m else M.insert (channelToVoice c) Rest m
   applyMsg m (_, NoteOn c p _) =
     if c >= nv then m else M.insert (channelToVoice c) (Pitch p False) m
+  applyMsg m _ = m
 
 ------------------------
 -- pieces and corpora --
 ------------------------
 
-
+corpusDir :: FilePath
 corpusDir = "data/corpus/"
-
-vomHimmel = corpusDir ++ "024823b2.mid"
-lobeDenHerren = corpusDir ++ "013705ch.mid"
 
 is4Choral :: FilePath -> IO Bool
 is4Choral fp = do
@@ -154,20 +153,3 @@ testPiece :: IO (Piece ChoralVoice)
 testPiece = do
   (Piece meta evs) <- loadMidi "data/testpiece_bwv269.mid"
   return $ Piece (meta { title = "Aus meines Herzens Grunde" }) evs
-
--- helpers
-
-convertKey :: FilePath -> IO ()
-convertKey fp = do
-  mf <- importFile fp
-  case mf of
-    Left  _    -> pure ()
-    Right midi -> do
-      let cmf = convKeys midi
-      exportFile (fp ++ ".2") cmf
-      renameFile (fp ++ ".2") fp
- where
-  conv (a, KeySignature accs key) = (a, KeySignature accs' key)
-    where accs' = if key == 1 then accs + 3 else accs
-  conv (a, msg) = (a, msg)
-  convKeys (Midi ft td ts) = Midi ft td (map (map conv) ts)

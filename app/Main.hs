@@ -3,6 +3,7 @@ module Main where
 import           VoiceLeading.Base             as VL
 import           VoiceLeading.Theory
 import           VoiceLeading.Automaton
+import           VoiceLeading.Features
 import           VoiceLeading.Distribution
 import           VoiceLeading.Learning
 import           VoiceLeading.Inference

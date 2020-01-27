@@ -20,49 +20,17 @@ where
 
 import           VoiceLeading.Base
 import           VoiceLeading.Distribution      ( Model(..) )
-import           VoiceLeading.Automaton         ( nfName
-                                                , defaultFeaturesNamed
-                                                )
-
-import           Data.List                      ( findIndex
-                                                , sortOn
-                                                )
-import qualified Data.Map.Strict               as M
-import           Data.Maybe                     ( mapMaybe )
-import qualified Data.Vector                   as V
-import qualified Data.Vector.Unboxed           as VU
 
 import           Data.Aeson
-import           Data.Aeson.Types
 import           Data.Aeson.Encode.Pretty       ( encodePretty )
-import           Data.Text                      ( Text
-                                                , unpack
-                                                )
 import qualified Data.ByteString.Lazy          as B
 
-instance ToJSON (Model v) where
-  toJSON (Model feats params) = object $ V.toList $ V.zipWith
-    mkPair
-    feats
-    (V.convert params)
-    where mkPair f p = nfName f .= p
-
-instance FromJSON (Model ChoralVoice) where
-  parseJSON object = do
-    mm <- parseJSON object :: Parser (M.Map Text Double)
-    let pairs =
-          V.fromList $ fst <$> sortOn snd (mapMaybe mkTriple (M.toList mm))
-    pure $ Model (fst <$> pairs) (VU.convert $ snd <$> pairs)
-   where
-    mkTriple (str, val) =
-      case findIndex (\nf -> nfName nf == str) defaultFeaturesNamed of
-        Nothing -> Nothing
-        Just i  -> Just ((defaultFeaturesNamed !! i, val), i)
 
 data ModelFile v = ModelFile
                  { mfDesc  :: Maybe String
                  , mfOpts  :: Maybe String
-                 , mfModel :: (Model v)}
+                 , mfModel :: Model v
+                 }
   deriving (Show)
 
 instance FromJSON (ModelFile ChoralVoice) where
@@ -86,7 +54,7 @@ saveModel model desc opts fp = B.writeFile fp (encodePretty mf)
 loadModel :: FilePath -> IO (Model ChoralVoice)
 loadModel fp = do
   str <- B.readFile fp
-  let mf = (decode str)-- :: Maybe (ModelFile ChoralVoice)
+  let mf = decode str-- :: Maybe (ModelFile ChoralVoice)
   case mf of
     Just m  -> pure $ mfModel m
     Nothing -> error "could not parse model"

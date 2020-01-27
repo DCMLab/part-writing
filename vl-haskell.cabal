@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 43e216a8bba1e65f6fb39a683f1aebc25b5907d0d6790561bf2b40fb3508f39a
+-- hash: 2f8a4e0bd86cff723c7ca0d1a523fca44414800b8d5b3544f804fcbd6594210c
 
 name:           vl-haskell
 version:        0.1.0
@@ -21,6 +21,7 @@ library
       VoiceLeading.Automaton
       VoiceLeading.Base
       VoiceLeading.Distribution
+      VoiceLeading.Features
       VoiceLeading.Helpers
       VoiceLeading.Inference
       VoiceLeading.IO.LilyPond

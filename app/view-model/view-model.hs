@@ -31,6 +31,7 @@ opts =
     <*> switch (long "tmp" <> short 't' <> help "write to temporary file")
     <*> switch (long "quiet" <> short 'q' <> help "don't view the output file")
 
+optsInfo :: ParserInfo Opts
 optsInfo = info
   (opts <**> helper)
   (fullDesc <> progDesc "Convert and view a piece/model/MIDI file.")
@@ -45,11 +46,10 @@ main = do
 data Document v = DocPiece (Piece v)
                 | DocModel (Model v)
 
-te = takeExtension
-
 loadDoc :: FilePath -> IO (Document ChoralVoice)
-loadDoc fp | te fp == ".midi" = DocPiece <$> loadMidi fp
-           | te fp == ".json" = DocModel <$> loadModel fp
+loadDoc fp | takeExtension fp == ".midi" = DocPiece <$> loadMidi fp
+           | takeExtension fp == ".json" = DocModel <$> loadModel fp
+           | otherwise = error $ "Unrecognized file type " <> takeExtension fp
 
 exportDoc :: Voice v => FilePath -> Document v -> IO ()
 exportDoc fp (DocPiece p) = writeFile fp $ pieceToLy p

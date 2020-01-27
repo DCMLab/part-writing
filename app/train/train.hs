@@ -1,14 +1,16 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Main where
 
-import           VoiceLeading.Base              ( pieceLen )
-import           VoiceLeading.Automaton         ( defaultFeaturesNamed
+import           VoiceLeading.Automaton         ( AutoOpts(..) )
+import           VoiceLeading.Features          ( defaultFeaturesNamed
                                                 , nfName
                                                 , nfFeature
-                                                , AutoOpts(..)
                                                 , runFeaturesOn
                                                 )
 import           VoiceLeading.Learning          ( trainPCD
@@ -16,7 +18,7 @@ import           VoiceLeading.Learning          ( trainPCD
                                                 , neighbor
                                                 , stoppingXi
                                                 , momentum
-                                                , adam
+                                                -- , adam
                                                 )
 import           VoiceLeading.Distribution      ( evalModelUnnormLog
                                                 , expectedFeatsM
@@ -34,7 +36,6 @@ import           VoiceLeading.Helpers           ( normU
 import           VoiceLeading.Theory            ( loadProfiles
                                                 , vectorizeProfiles
                                                 , matchChordProfiles
-                                                , findHarm
                                                 )
 
 import           VoiceLeading.IO.Midi           ( corpusPieces )
@@ -49,17 +50,15 @@ import           Data.Semigroup                 ( (<>)
 import           Control.DeepSeq                ( deepseq )
 import           Control.Monad                  ( unless )
 import qualified Control.Monad.State           as ST
-import           Control.Monad.IO.Class         ( MonadIO(..) )
+import           Control.Monad.IO.Class         ( liftIO )
 import           System.IO                      ( stdout
                                                 , hFlush
-                                                , Handle(..)
+                                                , Handle
                                                 , withFile
                                                 , IOMode(..)
                                                 )
-import           System.Random.MWC              ( createSystemRandom
-                                                , initialize
-                                                )
-import           Formatting
+import           System.Random.MWC              ( initialize )
+import           Formatting              hiding ( now )
 import           Formatting.Clock               ( timeSpecs )
 import           Formatting.ShortFormatters
 import           System.Clock
@@ -214,6 +213,7 @@ opts =
             "don't show the last samples of the PCD chain"
           )
 
+optsInfo :: ParserInfo Opts
 optsInfo = info
   (opts <**> helper)
   (fullDesc <> progDesc "Train model parameters from the corpus")
@@ -221,14 +221,8 @@ optsInfo = info
 type LogAction = ST.StateT (TimeSpec, TimeSpec) IO ()
 type Logger = TrainingLogEntry -> LogAction
 
-instance Monoid LogAction where
-  mempty = pure ()
-
-instance Semigroup LogAction where
-  (<>) = (>>)
-
---instance Monoid Logger where
---  mempty = pure ()
+(<+>) :: Logger -> Logger -> Logger
+l1 <+> l2 = \entry -> l1 entry >> l2 entry
 
 stdLogger
   :: V.Vector T.Text
@@ -240,9 +234,9 @@ stdLogger
   -> Logger
 stdLogger names train test stopCrit fpParams fpGrad =
   logParams names fpParams
-    <> logGrad names fpGrad
-    <> logShort
-    <> logObjective train test stopCrit
+    <+> logGrad names fpGrad
+    <+> logShort
+    <+> logObjective train test stopCrit
 
 logParams :: V.Vector T.Text -> FilePath -> Logger
 logParams names fp (TLogEntry _ _ params _ _ _ _) =
@@ -303,7 +297,7 @@ logShort (TLogEntry it progr _ gradient power rate _) = do
     it
     progr
     old
-    now
+    diff
     power
     rate
     (normU gradient)
@@ -317,13 +311,7 @@ logJSON
   -> Logger
 logJSON train test stopCrit h (TLogEntry it prog params gradient power rate chain)
   = do
-    -- now          <- ST.lift $ getTime Monotonic
-    -- (start, old) <- ST.get
-    -- ST.put (start, now)
-    let -- diff a b = toNanoSecs $ diffTimeSpec a b
-        -- ts  = diff start now
-        -- to  = diff old now
-        obj = object
+    let obj = object
           [ "iteration" .= it
           , "progress" .= prog
           , "params" .= params
@@ -341,9 +329,10 @@ logJSON train test stopCrit h (TLogEntry it prog params gradient power rate chai
   where (cdTrain, cdTest) = evalObjective params train test chain
   -- model = object $ V.toList $ V.zipWith (.=) names (V.convert params)
 
-logJSONHeader h names opts = do
+logJSONHeader :: Handle -> V.Vector T.Text -> Opts -> LogAction
+logJSONHeader h names options = do
   ST.lift $ B.hPut h $ encodePretty $ object
-    ["features" .= names, "options" .= opts]
+    ["features" .= names, "options" .= options]
 
 main :: IO ()
 main = do
@@ -408,7 +397,7 @@ main = do
     else withFile (logFp options) WriteMode $ \h -> ST.runStateT
       (do
         logJSONHeader h fNames options
-        train $ logger <> logJSON expTrain expTest stopCrit h
+        train $ logger <+> logJSON expTrain expTest stopCrit h
       )
       (now, now)
   -- print model

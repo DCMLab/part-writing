@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BangPatterns #-}
 {-|
@@ -65,21 +66,28 @@ where
 
 import           VoiceLeading.Base
 import           VoiceLeading.Automaton
+import           VoiceLeading.Features
 
-import           Data.List                      ( transpose )
-import           Data.Text                      ( unpack )
+import qualified Data.Text                     as T
+import qualified Data.Map.Strict               as M
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Vector.Unboxed.Mutable   as VUM
 import           Data.Foldable                  ( foldl' )
+import           Data.List                      ( sortOn
+                                                , findIndex
+                                                )
+import           Data.Maybe                     ( mapMaybe )
 
 import qualified Streamly                      as S
 import qualified Streamly.Prelude              as S
-import           Control.Monad.IO.Class         ( MonadIO )
 import           Control.DeepSeq                ( force )
 import qualified Control.Loop                  as L
 import           Control.Monad                  ( forM_ )
 import           Control.Monad.Primitive        ( PrimMonad )
+
+import           Data.Aeson
+import qualified Data.Aeson.Types              as A
 
 -----------------
 -- basic types --
@@ -106,7 +114,26 @@ data Model v = Model { modelFeatures :: V.Vector (NamedFeature v)
 
 instance Show v => Show (Model v) where
   show (Model fs ps) = "Model:\n" ++ concat (V.zipWith showF fs (V.convert ps))
-    where showF (NamedFeature _ n v) p = unpack n <> " " <> show p <> "\n"
+    where showF (NamedFeature _ n _) p = T.unpack n <> " " <> show p <> "\n"
+
+instance ToJSON (Model v) where
+  toJSON (Model feats params) = object $ V.toList $ V.zipWith
+    mkPair
+    feats
+    (V.convert params)
+    where mkPair f p = nfName f .= p
+
+instance FromJSON (Model ChoralVoice) where
+  parseJSON obj = do
+    mm <- parseJSON obj :: A.Parser (M.Map T.Text Double)
+    let featurePairs =
+          V.fromList $ fst <$> sortOn snd (mapMaybe mkTriple (M.toList mm))
+    pure $ Model (fst <$> featurePairs) (VU.convert $ snd <$> featurePairs)
+   where
+    mkTriple (str, val) =
+      case findIndex (\nf -> nfName nf == str) defaultFeaturesNamed of
+        Nothing -> Nothing
+        Just i  -> Just ((defaultFeaturesNamed !! i, val), i)
 
 ----------------
 -- evaluation --
@@ -244,13 +271,13 @@ expectedFeatsM !opts !pieces !features = do
           $ S.mapM (pure . flip (countFeaturesP opts) features)
           $ S.fromList
           $ force pieces
-      init   = (VU.convert $ 0 <$ features)
+      zeros  = VU.convert $ 0 <$ features
       folder = VU.zipWith (+)
-  counts <- S.foldl' folder init pieceCounts
+  counts <- S.foldl' folder zeros pieceCounts
   pure $ VU.map (/ n) counts
   where n = fromIntegral $ sum (map pieceLen pieces)
 
 
 -- helper function, extracts features from named features
--- unname :: [NamedFeature v] -> [Feature v]
+unname :: Functor f => f (NamedFeature v) -> f (Feature v)
 unname = fmap nfFeature

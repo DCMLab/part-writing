@@ -32,16 +32,14 @@ import           VoiceLeading.IO.Midi
 import           VoiceLeading.Helpers           ( processList )
 import           VoiceLeading.Theory            ( modal )
 
-import           Data.Traversable
 import           Data.Functor.Identity          ( Identity )
 import           GHC.Base                       ( (<|>) )
 import           Data.Ratio
 import           Data.Fixed                     ( mod' )
-import           Data.List                      ( sort
-                                                , genericLength
-                                                , find
+import           Data.List                      ( find )
+import           Data.Maybe                     ( fromMaybe
+                                                , listToMaybe
                                                 )
-import           Data.Maybe                     ( mapMaybe )
 
 import           System.IO.Temp                 ( withSystemTempDirectory )
 import           System.FilePath                ( (</>)
@@ -51,7 +49,6 @@ import           System.FilePath                ( (</>)
 import           System.Process                 ( callCommand )
 
 import qualified Data.Music.Lilypond           as L
-import qualified Data.Music.Lilypond.IO        as LIO
 import qualified Text.Pretty                   as P
 
 import qualified Data.Machine                  as MC
@@ -76,20 +73,20 @@ lyFooter :: String
 lyFooter = "\n  \\layout{}\n  \\midi{ \\tempo 4 = 90 }\n}"
 
 pieceToLy' :: Voice v => Piece v -> L.Music
-pieceToLy' p@(Piece meta _) = L.New "StaffGroup" Nothing
+pieceToLy' p@(Piece _ _) = L.New "StaffGroup" Nothing
   $ L.Simultaneous False staves
  where
   vs     = reverse voiceList
   staves = map (L.New "Staff" Nothing . voiceToLy p) vs
 
 voiceToLy :: Voice v => Piece v -> v -> L.Music
-voiceToLy (Piece meta evs@(e1 : _)) v =
+voiceToLy (Piece meta evs) v =
   L.Sequential $ global ++ processList evs converter ++ final
  where
   (num, denom) = timeSignature meta
   key          = keySignature meta
   barLen       = toRational num
-  upBeat       = evBeat e1
+  upBeat       = maybe 0 evBeat $ listToMaybe evs
   (kp, km)     = guessKey key
   global       = [L.Time num denom, L.Key kp km, L.Clef $ guessClef v evs]
                  -- some way to add \partial?
@@ -118,39 +115,39 @@ voiceMachine key barLen beatLen upBeat v = MC.unfoldPlan (0, Nothing) go
     case note of
       Rest      -> go (beat, Just $ L.Rest Nothing [])
       Pitch p _ -> go (beat, Just $ L.Note (midiToNote key p) Nothing [])
-  completeLast last dur hold =
-    let post = (if hold then [L.Tie] else [])
-    in  case last of
+  completeLast lastThing dur hold =
+    let post = ([ L.Tie | hold ])
+    in  case lastThing of
           Just (L.Rest _ _) -> yieldNote L.Rest dur post
           Just (L.Note p _ _) -> yieldNote (L.Note p) dur post
           _ -> if wholeBar dur then pure () else yieldNote L.Rest dur []
         -- usually yield nothing, but now rest instead of \partial
-  calcDur beat lastBeat = (mod' (beat - lastBeat) barLen * beatLen)
+  calcDur beat lastBeat = mod' (beat - lastBeat) barLen * beatLen
   mkDur dur = Just $ L.Duration (if dur == 0 then barLen * beatLen else dur)
   wholeBar dur = dur == (barLen * beatLen)
-  po2 n = elem n $ map (2 ^) [0 .. n]
   po2' n = elem n $ map (\i -> (2 ^ i) - 1) [0 .. n]
-  fracPart f = maybe 1 id $ find (\i -> 1 % (2 ^ i) < f) [0 ..]
+  fracPart f = fromMaybe 1 $ find (\i -> 1 % (2 ^ i) < f) [0 ..]
   yieldNote note dur post
     | po2' (numerator dur) = MC.yield $ note (mkDur dur) post
     | otherwise = do
-      case (note Nothing []) of
-        (L.Rest _ _  ) -> MC.yield $ note (mkDur first) []
-        (L.Note _ _ _) -> MC.yield $ note (mkDur first) [L.Tie]
+      case note Nothing [] of
+        (L.Rest _ _) -> MC.yield $ note (mkDur first) []
+        L.Note{}     -> MC.yield $ note (mkDur first) [L.Tie]
+        _            -> pure ()
       yieldNote note (dur - first) post
-    where first = 1 % 2 ^ fracPart dur
+    where first = 1 % 2 ^ (fracPart dur :: Int)
 
 
 guessClef :: (Voice v) => v -> [Event v] -> L.Clef
 guessClef v evs = if mean < 60 then L.Bass else L.Treble
  where
-  mean =
-    (sum $ map (maybe 60 id . pitchMidi . (flip evGet) v) evs) % length evs
+  mean = sum (map (fromMaybe 60 . pitchMidi . flip evGet v) evs) % length evs
 
 guessKey :: KeySig -> (L.Pitch, L.Mode)
 guessKey k@(KeySig r 5) = (midiToPitch k r, L.Minor)
 guessKey k@(KeySig r m) = (midiToPitch k (r - modal 0 m), L.Major)
 
+lyPitches :: [(L.PitchName, L.Accidental)]
 lyPitches =
   [ (L.C, 0)
   , (L.C, 1)
@@ -168,7 +165,7 @@ lyPitches =
 
 -- TODO choose accidentals closest to key
 midiToPitch :: KeySig -> Int -> L.Pitch
-midiToPitch (KeySig r m) p = L.Pitch (name, acc, oct)
+midiToPitch _ p = L.Pitch (name, acc, oct)
  where
   pc          = mod p 12
   (name, acc) = lyPitches !! pc
@@ -194,7 +191,7 @@ viewLyTmp lystr = withSystemTempDirectory "showly" $ \dir -> do
   let fp = dir </> "music.ly"
   viewLy lystr fp
   putStrLn "press enter to continue (will delete temporary lilypond file)"
-  x <- getLine
+  _ <- getLine -- wait for enter
   pure ()
 
 -- | Compile a LilyPond 'String' and view the resulting PDF file.
@@ -217,7 +214,7 @@ viewPieceTmp piece = viewLyTmp $ pieceToLy piece
 
 -- | Load a MIDI file and view its representation using LilyPond (cf. 'viewLy').
 viewMidi :: FilePath -> FilePath -> IO ()
-viewMidi fin fout = midiToLy fin >>= (flip viewLy) fout
+viewMidi fin fout = midiToLy fin >>= flip viewLy fout
 
 -- | Load a MIDI file and view its representation using LilyPond (cf. 'viewLyTmp').
 --   Uses a temporary directory.

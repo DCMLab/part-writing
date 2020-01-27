@@ -77,11 +77,11 @@ renderPlotHBars p pmap = case _plot_bars_style p of
     let (Point x0' _) = pmap' (x0, y)
     rectPath (Rect (Point x0' (y' + yos)) (Point x' (y' + yos + height)))
 
-  barLine y xs x0 = withLineStyle style $ strokePointPath [(Point 0 y'), p]
+  barLine y xs x0 = withLineStyle style $ strokePointPath [Point 0 y', pt]
    where
-    xmin           = minimum (x0 : xs)
-    p@(Point _ y') = pmap' (xmin, y)
-    style          = (dashedLine 0.5 [2.0, 8.0] (opaque black))
+    xmin            = minimum (x0 : xs)
+    pt@(Point _ y') = pmap' (xmin, y)
+    style           = dashedLine 0.5 [2.0, 8.0] (opaque black)
 
   xref0  = _plot_bars_reference p
   vals   = _plot_bars_values p
