@@ -415,7 +415,7 @@ trainPCD optimizer gen opts pieces expData features iterations chainSize restart
             fastParams
             gradient
         logger $ TLogEntry it progress newParams gradient power rate expChain
-        pure (newParams, fastParams, newChain, it + 1, newOpt)
+        pure (newParams, newFastParams, newChain, it + 1, newOpt)
        where
         paramsCombined = VU.zipWith (+) params fastParams
         sampleZipper pw p c = liftIO $ gibbsStepNote (const (pVec, ()))
