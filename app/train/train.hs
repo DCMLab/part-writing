@@ -71,7 +71,6 @@ import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as VU
 import qualified Data.Function.Memoize         as Mem
 import qualified Data.Text                     as T
-import           Data.Maybe                     ( fromMaybe )
 import           GHC.Generics                   ( Generic )
 
 data Opts = Opts
@@ -293,8 +292,7 @@ logShort :: Logger
 logShort (TLogEntry it progr _ gradient power rate _) = do
   now    <- ST.lift $ getTime Monotonic
   lstate <- ST.get
-  let old  = lsOld lstate
-      diff = diffTimeSpec now old
+  let old = lsOld lstate
       lf pad prec = left pad ' ' %. f prec
   ST.put $ lstate { lsOld = now }
   ST.lift $ fprint
@@ -318,7 +316,6 @@ logShort (TLogEntry it progr _ gradient power rate _) = do
     power
     rate
     (normU gradient)
-  -- printf "%4d (%4.2f) [%2d.%.2d]: power = % 5.2f, learning rate = % 5.2f, |gradient| = % 7.5f"
 
 logJSON
   :: FeatureCounts
@@ -342,7 +339,6 @@ logJSON train test stopCrit h (TLogEntry it prog params gradient power rate chai
           ]
     ST.lift $ B.hPut h $ encodePretty obj
   where (cdTrain, cdTest) = evalObjective params train test chain
-  -- model = object $ V.toList $ V.zipWith (.=) names (V.convert params)
 
 logJSONHeader :: Handle -> V.Vector T.Text -> Opts -> LogAction
 logJSONHeader h names options = ST.lift $ B.hPut h $ encodePretty $ object
@@ -350,10 +346,8 @@ logJSONHeader h names options = ST.lift $ B.hPut h $ encodePretty $ object
 
 main :: IO ()
 main = do
-  -- gen     <- liftIO createSystemRandom
   gen     <- initialize defaultSeed -- for reproducability
   options <- execParser optsInfo
-  -- putStrLn $ show options
 
   let featuresNamed = V.fromList defaultFeaturesNamed
       feats         = nfFeature <$> featuresNamed
@@ -376,16 +370,12 @@ main = do
 
   neighbors <- mapM (neighbor gen $ neighborDist options) pieces
   let countsNbh = concatMap (\nb -> runFeaturesOn aopts nb feats) neighbors
-  -- neighbors <- mapM (\d -> mapM (neighbor gen d) pieces)
-  --                   [1, 0.5, 0.1, 0.05, 0.01, 0.001]
-  -- let countsNbh = concatMap (\nb -> runFeaturesOn aopts nb feats) <$> neighbors
   countsTrainPieces <- mapM (\nb -> countFeaturesM aopts nb feats) trainPieces
   countsTrain <- VU.map (/ ntrain) <$> sumFeaturesM feats countsTrainPieces
 
   liftIO $ expTrain `deepseq` expTest `deepseq` putStrLn "done."
 
-  let scale    = 0 -- fromIntegral $ maximum $ pieceLen <$> pieces
-      stopCrit = stoppingXi scale countsTrain countsNbh
+  let stopCrit = stoppingXi countsTrain countsNbh
       logger   = stdLogger fNames
                            expTrain
                            expTest

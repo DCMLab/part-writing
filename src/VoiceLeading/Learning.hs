@@ -339,13 +339,8 @@ neighbor gen k (Piece meta evs) =
       _                -> pitchList
     drawPitch = chooseRandom pLst gen
 
-stoppingXi
-  :: Double -> FeatureCounts -> [FeatureCounts] -> ModelParams -> Double
-stoppingXi scale train neighbors params = xiTrain - xiNb
+stoppingXi :: FeatureCounts -> [FeatureCounts] -> ModelParams -> Double
+stoppingXi train neighbors params = xiTrain - xiNb
  where
   xiTrain = evalModelUnnormLog train params
-  xiNb =
-    log
-      $   sum
-      $   (\nb -> exp $ evalModelUnnormLog nb params - scale)
-      <$> neighbors
+  xiNb = log $ sum $ (\nb -> exp $ evalModelUnnormLog nb params) <$> neighbors
