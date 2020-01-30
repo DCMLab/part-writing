@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 module VoiceLeading.Helpers where
 
 import           Data.Machine                   ( run
@@ -13,15 +14,28 @@ import qualified Data.Vector.Unboxed           as VU
 import           Control.Monad.Trans.Maybe
 import           System.Random.MWC              ( uniformR
                                                 , Gen
+                                                , GenIO
+                                                , createSystemRandom
+                                                , save
+                                                , fromSeed
+                                                , initialize
                                                 )
 import           Control.Monad.Primitive        ( PrimMonad
                                                 , PrimState
                                                 )
+import           Control.Monad                  ( replicateM_ )
 import           Data.Word                      ( Word32 )
 import           GHC.Generics                   ( Generic )
 import           Data.Aeson
-import           Data.Aeson.Types               ( Parser )
+import           Data.Aeson.Types               ( Parser
+                                                , typeMismatch
+                                                )
 import qualified Data.Text                     as T
+import qualified Text.ParserCombinators.ReadP  as R
+import           System.IO                      ( withFile
+                                                , IOMode(..)
+                                                , hPrint
+                                                )
 
 processList :: Foldable t => t i -> ProcessT Identity i o -> [o]
 processList ins p = run $ source ins ~> p
@@ -118,6 +132,48 @@ rFun (Exp s e  ) = exponential s e
 -----------------
 -- random seed --
 -----------------
+
+createSeed :: IO (VU.Vector Word32)
+createSeed = fromSeed <$> (createSystemRandom >>= save)
+
+writeSeeds :: FilePath -> Int -> IO ()
+writeSeeds fp n =
+  withFile fp WriteMode $ \file -> replicateM_ n $ createSeed >>= hPrint file
+
+data RandomSeedSpec = DefaultSeed
+                    | SystemRandom
+                    | Seed (VU.Vector Word32)
+  deriving (Eq, Ord)
+
+instance Show RandomSeedSpec where
+  show DefaultSeed  = "default"
+  show SystemRandom = "random"
+  show (Seed s)     = show $ VU.toList s
+
+parseRandomSeedSpec :: R.ReadP RandomSeedSpec
+parseRandomSeedSpec =
+  (R.string "default" >> R.eof >> return DefaultSeed)
+    R.<++ (R.string "random" >> R.eof >> return SystemRandom)
+    R.<++ (Seed . VU.fromList <$> R.readS_to_P reads)
+
+instance Read RandomSeedSpec where
+  readsPrec _ = R.readP_to_S parseRandomSeedSpec
+
+instance ToJSON RandomSeedSpec where
+  toJSON DefaultSeed  = String "default"
+  toJSON SystemRandom = String "random"
+  toJSON (Seed s)     = toJSON s
+
+instance FromJSON RandomSeedSpec where
+  parseJSON arr@(Array  a        ) = Seed . VU.fromList <$> parseJSON arr
+  parseJSON (    String "default") = return DefaultSeed
+  parseJSON (    String "random" ) = return SystemRandom
+  parseJSON invalid                = typeMismatch "RandomSeedSpec" invalid
+
+genFromSeed :: RandomSeedSpec -> IO GenIO
+genFromSeed DefaultSeed  = initialize defaultSeed
+genFromSeed SystemRandom = createSystemRandom
+genFromSeed (Seed s)     = initialize s
 
 defaultSeed :: VU.Vector Word32
 defaultSeed = VU.fromList

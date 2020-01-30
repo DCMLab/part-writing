@@ -31,8 +31,9 @@ import           VoiceLeading.Distribution      ( evalModelUnnormLog
 import           VoiceLeading.Helpers           ( normU
                                                 , RFun(..)
                                                 , rFun
-                                                , defaultSeed
                                                 , linear
+                                                , RandomSeedSpec(..)
+                                                , genFromSeed
                                                 )
 import           VoiceLeading.Theory            ( loadProfiles
                                                 , vectorizeProfiles
@@ -82,6 +83,7 @@ data Opts = Opts
   , fRate :: RFun
   , fRateFast :: RFun
   , fPower :: RFun
+  , randomSeed :: RandomSeedSpec
   , profileFp :: FilePath
   , modelFp :: FilePath
   , diagramFp :: FilePath
@@ -168,6 +170,16 @@ opts =
           <> showDefault
           <> value (Cnst 1)
           <> metavar "RFUN"
+          )
+    <*> option
+          auto
+          (  long "random-seed"
+          <> short 'R'
+          <> help
+               "the random seed to use (\"default\", \"random\", or a list of Word32 values \"[1,2,3,...]\")"
+          <> showDefault
+          <> value DefaultSeed
+          <> metavar "SEED"
           )
     <*> strOption
           (  long "chord-profile"
@@ -346,8 +358,8 @@ logJSONHeader h names options = ST.lift $ B.hPut h $ encodePretty $ object
 
 main :: IO ()
 main = do
-  gen     <- initialize defaultSeed -- for reproducability
   options <- execParser optsInfo
+  gen     <- genFromSeed (randomSeed options)
 
   let featuresNamed = V.fromList defaultFeaturesNamed
       feats         = nfFeature <$> featuresNamed
