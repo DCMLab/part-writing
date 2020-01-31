@@ -5,3 +5,4 @@ neighborDistance=0.1
 resetRate=0
 iterations=5000
 chainSize=2
+rtsopts="+RTS -N$NUM_CORES -RTS"

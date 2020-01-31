@@ -11,5 +11,6 @@ do
     echo "Run $i"
     stack exec vl-train -- $iterations -s 1 -z $neighborDistance -c $chainSize -r $resetRate\
           -l "$learningRate" -f "$fastWeightsRate" -p "$power" -R "$seed"\
-          -o "model_compare_$i.json" -L "train_compare_$i.log"
+          -o "model_compare_$i.json" -L "train_compare_$i.log"\
+          $rtsopts
 done < reproduce/seeds.txt

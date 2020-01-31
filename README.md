@@ -27,15 +27,18 @@ You can find the documentation for this project under "VoiceLeading".
 
 The directory `reproduce` contains scripts for reproducing the data used in the paper.
 They are meant to be called from the main directory
-and generate their output in the main directory as well:
+and generate their output in the main directory as well.
+Performance is best if the number of threads matches the set of *physical* cores.
+Since the GHC runtime gets confused about this by hyperthreading,
+you can set the number of threads manually using the environment variable `NUM_CORES` (optional).
 
 ``` shell
-$ ./reproduce/train.sh
+$ NUM_CORES=2 ./reproduce/train.sh
 ```
 produces a model and a training log from a fixed random seed.
 
 ``` shell
-$ ./reproduce/train_many.sh
+$ NUM_CORES=2 ./reproduce/train_many.sh
 ```
 produces a set of models (and logs) from fixed random seeds but with smaller markov chains.
 These models can be used for comparision with the main model
