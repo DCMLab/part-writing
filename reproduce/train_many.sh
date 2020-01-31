@@ -2,9 +2,8 @@
 
 . reproduce/settings.sh
 
-times=3
+times=10
 chainSize=1 # faster for many runs
-iterations=2
 
 for i in $(seq 1 $times);
 do
