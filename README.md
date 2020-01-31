@@ -23,6 +23,26 @@ You can find the documentation for this project under "VoiceLeading".
 
 ## Usage
 
+### Reproducibility
+
+The directory `reproduce` contains scripts for reproducing the data used in the paper.
+They are meant to be called from the main directory
+and generate their output in the main directory as well:
+
+``` shell
+$ ./reproduce/train.sh
+```
+produces a model and a training log from a fixed random seed.
+
+``` shell
+$ ./reproduce/train_many.sh
+```
+produces a set of models (and logs) from fixed random seeds but with smaller markov chains.
+These models can be used for comparision with the main model
+in order to asses the robustness of the computed values.
+
+### Custom Usage
+
 vl-haskell provides two main executables, `vl-train` and `vl-compose`.
 `vl-train` takes some learning parameters, runs a training session over
 all 4-voiced MIDI files in `data/corpus/`, and writes the resulting trained model
