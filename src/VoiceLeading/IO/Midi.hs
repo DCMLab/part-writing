@@ -28,6 +28,7 @@ import           Control.Monad                  ( filterM )
 import           Data.List                      ( groupBy
                                                 , dropWhileEnd
                                                 , find
+                                                , sort
                                                 )
 import           Data.Function                  ( on )
 import           Data.Ratio
@@ -64,13 +65,13 @@ loadMidi fp = do
 findTS :: Track Ticks -> (Int, Int)
 findTS track = getTS $ find (isTimeSig . snd) track
  where
-  getTS (Just (_, (TimeSignature bpbar denom _ _))) = (bpbar, denom)
+  getTS (Just (_, TimeSignature bpbar denom _ _)) = (bpbar, denom)
   getTS _ = (4, 2)
 
 findKS :: Track Ticks -> (Int, Int)
 findKS track = getKS $ find (isKeySig . snd) track
  where
-  getKS (Just (_, (KeySignature accs mode))) = (accs, mode)
+  getKS (Just (_, KeySignature accs mode)) = (accs, mode)
   getKS _ = (0, 0)
 
 convertMidi :: forall  v . Voice v => FilePath -> Midi -> Piece v
@@ -140,7 +141,7 @@ is4Choral fp = do
 
 corpusPaths :: IO [FilePath]
 corpusPaths = do
-  files <- listDirectory corpusDir
+  files <- sort <$> listDirectory corpusDir
   let paths = map (corpusDir ++) files
   filterM is4Choral paths
 
