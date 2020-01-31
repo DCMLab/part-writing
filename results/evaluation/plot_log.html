@@ -1,0 +1,144 @@
+<html>
+<head>
+    <script type="text/javascript" src="js/dygraph.js"></script>
+    <script type="text/javascript" src="js/synchronizer.js"></script>
+    <link rel="stylesheet" src="js/dygraph.css" />
+    <style>
+     .dygraph-legend > span { display: none; }
+     .dygraph-legend > span.highlight { display: inline; }
+     .graphdiv {
+         float:left;
+         width: 600px;
+         height: 400px;
+     }
+     #statsdiv { clear: left; }
+    </style>
+</head>
+<body>
+  <input type="file" id="input" onchange="plotfile(this.files[0])">
+  <!-- <input type="button" id="refresh" onclick="refresh()" value="refresh"> -->
+  <div id="modeldiv" class="graphdiv"></div>
+  <div id="graddiv" class="graphdiv"></div>
+  <div id="statsdiv" class="graphdiv"></div>
+  <div id="objdiv" class="graphdiv"></div>
+  <script type="text/javascript">
+    var input = document.getElementById('input');
+    var modelDiv = document.getElementById("modeldiv");
+    var gradDiv = document.getElementById("graddiv");
+    var statsDiv = document.getElementById("statsdiv");
+    var objDiv = document.getElementById("objdiv");
+    //currentJSON = null;
+    
+    function refresh() {
+        plotfile(input.files[0]);
+    }
+    
+    function plotfile(file) {
+        //alert("file has changed");
+        var reader = new FileReader();
+        reader.onload = function(evt) {
+            var str = evt.target.result.replace(/\}\{/g, '},{');
+            plotEntries(JSON.parse('[' + str + ']'));
+        }
+        reader.readAsText(file);
+    }
+    
+    function plotEntries([header, ...logEntries]) {
+        var features = header.features;
+        
+        var modelData = logEntries.map(
+            (entry) => [entry.iteration].concat(entry.params)
+        );
+        
+        var gradData = logEntries.map(
+            (entry) => [entry.iteration].concat(entry.gradient)
+        );
+         
+        var statsData = logEntries.map(
+            (entry) => [entry.iteration, entry['grad_norm'], entry.rate, entry.power, entry.cdTrain, entry.cdTest]
+        );
+        
+        var objData = logEntries.map(
+            (entry) => [entry.iteration, entry.stopCrit]
+        );
+         
+        gModel = new Dygraph(
+            modelDiv,
+            modelData,
+            {
+                height: 400,
+                width: 600,
+                //showLabelsOnHighlight: false,
+                labels: ["x"].concat(features),
+                //labelsDiv: "legenddiv",
+                //legend: "always",
+                highlightSeriesOpts: {
+                    strokeWidth: 2
+                },
+                rollPeriod: 1,
+                showRoller: true
+            });
+        
+        gGrad = new Dygraph(
+            gradDiv,
+            gradData,
+            {
+                height: 400,
+                width: 600,
+                //showLabelsOnHighlight: false,
+                labels: ["x"].concat(features),
+                //labelsDiv: "legenddiv",
+                //legend: "always",
+                highlightSeriesOpts: {
+                    strokeWidth: 2
+                },
+                rollPeriod: 7,
+                showRoller: true
+            });
+        
+        gStats = new Dygraph(
+            statsDiv,
+            statsData,
+            {
+                height: 400,
+                width: 600,
+                //showLabelsOnHighlight: false,
+                labels: ["x", "gradient norm", "learning rate", "exponent", "train", "test"],
+                //labelsDiv: "legenddiv",
+                //legend: "always",
+                highlightSeriesOpts: {
+                    strokeWidth: 2
+                }
+            });
+        
+        gObj = new Dygraph(
+            objDiv,
+            objData,
+            {
+                height: 400,
+                width: 600,
+                labels: ["iteration", "xi"],
+                highlightSeriesOpts: {
+                    strokeWidth: 2
+                }
+            }
+        );
+        
+        var sync = Dygraph.synchronize([gModel, gGrad, gStats, gObj], { zoom: false });
+    }
+    
+    /* g = new Dygraph(
+     *     
+     *     // containing div
+     *     document.getElementById("graphdiv"),
+     *     
+     *     // CSV or path to a CSV file.
+     *     "Date,Temperature\n" +
+     *     "2008-05-07,75\n" +
+     *     "2008-05-08,70\n" +
+     *     "2008-05-09,80\n"
+     *     
+     * );*/
+  </script>
+</body>
+</html>
