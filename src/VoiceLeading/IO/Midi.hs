@@ -32,6 +32,7 @@ import           Data.List                      ( groupBy
                                                 )
 import           Data.Function                  ( on )
 import           Data.Ratio
+import           Data.Maybe                     ( listToMaybe )
 import           System.FilePath                ( takeBaseName )
 import           System.Directory               ( listDirectory )
 
@@ -77,27 +78,38 @@ findKS track = getKS $ find (isKeySig . snd) track
 convertMidi :: forall  v . Voice v => FilePath -> Midi -> Piece v
 convertMidi fp midi =
   let s              = midiToStream midi (length (voiceList :: [v]))
+      allTracks      = concat $ tracks midi
       notes          = filter (liftA2 (||) isNoteOn isNoteOff . snd) s
       groups         = groupBy ((==) `on` fst) notes
-      (bpbar, denom) = findTS s
+      (bpbar, denom) = findTS allTracks
       qpbar          = 4 * (bpbar % 2 ^ denom)
       bardur         = round $ fromIntegral (ppq (timeDiv midi)) * qpbar -- bar duration in ticks
       bdur           = round $ bardur % bpbar -- beat duration in ticks
       t2b            = tickToBeat bardur bdur -- converts abs ticks to rel beats
-      (accs, mode)   = findKS s
+      (accs, mode)   = findKS allTracks
       events         = scanl (msgToEvent t2b) emptyEvent groups
       evdrop         = dropWhileEnd isEmptyEvent (dropWhile isEmptyEvent events)
-      meta = PieceMeta { title         = takeBaseName fp
+      meta           = PieceMeta
+        { title         = takeBaseName fp
         -- clever key signature conversion calculations:
         -- root = 7*accidentals (mod 12)
         -- modus = 0*5 = 0 (major) or 1*5 = 5 (minor)
-                       , keySignature  = mkKeySig (mod (7 * accs) 12) (mode * 5)
-                       , timeSignature = (toInteger bpbar, 2 ^ denom)
-                       }
+        , keySignature  = mkKeySig (mod (7 * (accs + 3 * mode)) 12) (mode * 5)
+        , timeSignature = (toInteger bpbar, 2 ^ denom)
+        }
   in  Piece meta evdrop
 
 midiToStream :: Midi -> Int -> Track Ticks
-midiToStream m n = toAbsTime $ foldl1 merge (take (n + 1) (tracks m))
+midiToStream m n =
+  toAbsTime $ foldl1 merge $ take (n + 1) $ fixChannels 0 $ drop 1 $ tracks m
+ where
+  fixChannels :: Int -> [Track a] -> [Track a]
+  fixChannels _ []       = []
+  fixChannels i (t : ts) = (fmap (setChan i) <$> t) : fixChannels (i + 1) ts
+  setChan i (NoteOn  _ k v) = NoteOn i k v
+  setChan i (NoteOff _ k v) = NoteOff i k v
+  setChan _ msg             = msg
+
 
 channelToVoice :: Voice v => Int -> v
 channelToVoice c =
