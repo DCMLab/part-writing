@@ -1,0 +1,2 @@
+results/comparison_data/*.json filter=lfs diff=lfs merge=lfs -text
+results/comparison_data/*.log filter=lfs diff=lfs merge=lfs -text
